@@ -1,0 +1,32 @@
+# Python / uv
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Environment and secrets
+.env
+
+# Generated data (local lakehouse, exports, checkpoints, artifacts)
+data/
+*.parquet
+*.parquet.crc
+
+# Spark / JVM
+spark-warehouse/
+metastore_db/
+*.log
+hs_err_pid*
+
+# ML / AI artifacts
+mlruns/
+qdrant_storage/
+
+# OS
+.DS_Store
+
+# Editors
+.idea/
+.vscode/

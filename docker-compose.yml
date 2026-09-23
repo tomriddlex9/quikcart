@@ -1,0 +1,27 @@
+# QuickCart local services. Activate per-phase profiles only (kit/06 §4):
+#   docker compose --profile core up -d
+# Later phases add their own profiles here; nothing starts by default.
+name: quickcart
+
+services:
+  postgres:
+    image: postgres:17.11
+    profiles: ["core"]
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-quickcart}
+      POSTGRES_USER: ${POSTGRES_USER:-quickcart_app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-quickcart_app_dev}
+      # Phase 8 (CDC) will additionally require wal_level=logical; added then.
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+volumes:
+  pgdata:

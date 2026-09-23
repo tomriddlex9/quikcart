@@ -1,0 +1,1 @@
+"""SQL exercise package."""

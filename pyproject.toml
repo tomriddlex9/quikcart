@@ -1,0 +1,53 @@
+[project]
+name = "quickcart-intelligence"
+version = "0.1.0"
+description = "Local-first quick-commerce lakehouse, analytics, ML, RAG, and agentic AI learning platform"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.7",
+    "pydantic-settings>=2.2",
+    "structlog>=24.1",
+    "psycopg[binary]>=3.2",
+    "numpy>=2.1",
+    "faker>=30.0",
+    "pyyaml>=6.0.2",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.2",
+    "ruff>=0.6",
+]
+spark = [
+    "pyspark==4.2.0",
+    "delta-spark==4.4.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/quickcart"]
+
+[tool.uv]
+package = true
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = [
+    "unit: fast pure-logic tests without external services",
+    "integration: tests requiring live services (PostgreSQL via compose core profile)",
+    "contracts: schema and contract checks against live services",
+    "data_quality: data-quality rule tests",
+    "slow: long-running tests",
+]

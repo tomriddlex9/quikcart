@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { Route } from "lucide-react";
 import { SystemMap } from "@/components/system-map";
+import { Button } from "@/components/ui/button";
 import { DEMO_SYSTEM_STATUS } from "@/lib/demo";
 import { useApiData } from "@/lib/use-api";
 import type { SystemStatus } from "@/lib/types";
@@ -22,7 +23,8 @@ function anyGoldPresent(tables: Record<string, unknown>): boolean {
 function deriveJourney(status: SystemStatus | null): JourneyState {
   const services = status?.services ?? {};
   const tables = (status?.data_root_tables ?? {}) as Record<string, unknown>;
-  const up = (name: string): LaneState => (serviceState(services, name) === "up" ? "flowing" : "idle");
+  const up = (name: string): LaneState =>
+    serviceState(services, name) === "up" ? "flowing" : "idle";
   const debezium = serviceState(services, "debezium");
   return {
     batch: anyGoldPresent(tables) ? "flowing" : "idle",
@@ -48,22 +50,18 @@ export function SystemJourney() {
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-center gap-3">
-        <button
-          type="button"
+        <Button
+          variant={enabled ? "secondary" : "outline"}
+          size="sm"
           aria-pressed={enabled}
           onClick={() => setEnabled((v) => !v)}
-          className={`flex items-center gap-1.5 rounded-xs border px-3 py-1.5 text-[11.5px] transition-colors ${
-            enabled
-              ? "border-amber-dim/60 bg-amber/10 text-amber"
-              : "border-line text-muted hover:text-paper"
-          }`}
         >
-          <Route className="h-3.5 w-3.5" strokeWidth={1.75} />
+          <Route strokeWidth={1.75} />
           data journey {enabled ? "on" : "off"}
-        </button>
-        <span className="text-[10.5px] text-faint">
-          overlays today&apos;s path state from <code>/api/v1/system/status</code>
-          {demo ? " (API offline — states below are demo estimates)" : ""}
+        </Button>
+        <span className="text-xs text-muted-foreground">
+          overlays path state from <code>/api/v1/system/status</code>
+          {demo ? " (API offline — states are demo estimates)" : ""}
         </span>
       </div>
 
@@ -74,17 +72,21 @@ export function SystemJourney() {
           {LANE_SUMMARY.map(({ key, probe }) => {
             const state = journey[key];
             return (
-              <div key={key} className="border border-line-soft bg-ink-2/60 px-3 py-2">
-                <div className="flex items-center gap-1.5 text-[10.5px] text-paper-dim">
+              <div key={key} className="rounded-lg border border-border px-3 py-2">
+                <div className="flex items-center gap-1.5 text-xs">
                   <span
-                    className={`h-1.5 w-1.5 rounded-full ${
-                      state === "flowing" ? "bg-green" : state === "demo" ? "bg-amber" : "bg-faint"
+                    className={`size-1.5 rounded-full ${
+                      state === "flowing"
+                        ? "bg-chart-2"
+                        : state === "demo"
+                          ? "bg-chart-3"
+                          : "bg-muted-foreground"
                     }`}
                   />
                   {key === "ai" ? "AI / RAG" : key}
-                  <span className="ml-auto text-faint">{state}</span>
+                  <span className="ml-auto text-muted-foreground">{state}</span>
                 </div>
-                <div className="mt-0.5 text-[9.5px] text-faint">probe: {probe}</div>
+                <div className="mt-0.5 text-[10px] text-muted-foreground">probe: {probe}</div>
               </div>
             );
           })}

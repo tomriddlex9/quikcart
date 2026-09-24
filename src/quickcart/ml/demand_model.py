@@ -7,9 +7,11 @@ out tail. Forecasts persist to `gold_demand_forecasts` with the MLR-005
 prediction contract.
 """
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
+import joblib
 import mlflow
 import mlflow.sklearn
 import pandas as pd
@@ -18,10 +20,33 @@ from pyspark.sql import functions as F
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 from xgboost import XGBRegressor
 
+from quickcart.live.contracts import DEMAND_FEATURES_JSON, DEMAND_MODEL_JOBLIB
 from quickcart.ml.features import build_demand_features
 
 MODEL_NAME = "demand_forecast_daily"
 FEATURES = ["units_lag_1d", "units_lag_7d", "units_ma_7d", "is_weekend"]
+
+
+class _ColumnBaselineRegressor:
+    """Serializable predictor for a selected persistence/rolling baseline."""
+
+    def __init__(self, feature: str) -> None:
+        self.feature = feature
+
+    def predict(self, features: pd.DataFrame):
+        return features[self.feature].to_numpy()
+
+
+def _export_live_artifacts(model, feature_columns: list[str], root: Path) -> None:
+    """Persist the selected model and its input-column contract."""
+    model_path = root / DEMAND_MODEL_JOBLIB
+    features_path = root / DEMAND_FEATURES_JSON
+    model_path.parent.mkdir(parents=True, exist_ok=True)
+    joblib.dump(model, model_path)
+    features_path.write_text(
+        json.dumps(feature_columns, indent=2) + "\n",
+        encoding="utf-8",
+    )
 
 
 def _mae(y_true, y_pred) -> float:
@@ -90,17 +115,18 @@ def train_demand_model(
         results["xgboost_regressor"] = {"run_id": run.info.run_id, "metrics": metrics}
 
     best_name = min(results, key=lambda n: results[n]["metrics"]["mae"])
-    best_model = model if best_name == "xgboost_regressor" else None
+    if best_name == "xgboost_regressor":
+        best_model = model
+    elif best_name == "baseline_persistence":
+        best_model = _ColumnBaselineRegressor("units_lag_1d")
+    else:
+        best_model = _ColumnBaselineRegressor("units_ma_7d")
+    _export_live_artifacts(best_model, FEATURES, root)
     predicted_at = datetime.now(UTC)
 
     forecast = test[["store_id", "category", "day"]].copy()
     forecast["forecast_date"] = forecast["day"] + pd.Timedelta(days=1)
-    if best_model is not None:
-        forecast["expected_units"] = best_model.predict(X_test)
-    elif best_name == "baseline_persistence":
-        forecast["expected_units"] = X_test["units_lag_1d"]
-    else:
-        forecast["expected_units"] = X_test["units_ma_7d"]
+    forecast["expected_units"] = best_model.predict(X_test)
     forecast["actual_units"] = y_test.values
     forecast["predicted_at"] = predicted_at
     forecast["model_name"] = MODEL_NAME
@@ -116,6 +142,8 @@ def train_demand_model(
         "best_model": best_name,
         "metrics": {n: r["metrics"] for n, r in results.items()},
         "forecasts_path": str(out_path),
+        "model_artifact": str(root / DEMAND_MODEL_JOBLIB),
+        "features_artifact": str(root / DEMAND_FEATURES_JSON),
         "test_rows": len(test),
         "prediction_timestamp": predicted_at.isoformat(),
     }

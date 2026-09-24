@@ -12,9 +12,11 @@ prediction timestamp, model name/version — persisted to
 `gold_delivery_predictions`.
 """
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
+import joblib
 import mlflow
 import mlflow.sklearn
 import pandas as pd
@@ -24,6 +26,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import average_precision_score, log_loss, roc_auc_score
 from xgboost import XGBClassifier
 
+from quickcart.live.contracts import DELIVERY_FEATURES_JSON, DELIVERY_MODEL_JOBLIB
 from quickcart.ml.features import build_delivery_features
 
 MODEL_NAME = "delivery_delay_classifier"
@@ -44,6 +47,18 @@ NUMERIC = [
     "riders_on_shift",
     "same_hour_orders",
 ]
+
+
+def _export_live_artifacts(model, feature_columns: list[str], root: Path) -> None:
+    """Persist the selected model and its encoded input-column contract."""
+    model_path = root / DELIVERY_MODEL_JOBLIB
+    features_path = root / DELIVERY_FEATURES_JSON
+    model_path.parent.mkdir(parents=True, exist_ok=True)
+    joblib.dump(model, model_path)
+    features_path.write_text(
+        json.dumps(feature_columns, indent=2) + "\n",
+        encoding="utf-8",
+    )
 
 
 def _prepare(pdf: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
@@ -121,6 +136,7 @@ def train_delivery_model(
 
     best_name = max(results, key=lambda n: results[n]["metrics"]["pr_auc"])
     best = candidates[best_name].fit(X_train, y_train)
+    _export_live_artifacts(best, X_train.columns.tolist(), root)
     probability = best.predict_proba(X_test)[:, 1]
     predicted = (probability >= 0.5).astype(int)
     predicted_at = datetime.now(UTC)
@@ -146,6 +162,8 @@ def train_delivery_model(
         "best_run_id": results[best_name]["run_id"],
         "metrics": {n: r["metrics"] for n, r in results.items()},
         "predictions_path": str(out_path),
+        "model_artifact": str(root / DELIVERY_MODEL_JOBLIB),
+        "features_artifact": str(root / DELIVERY_FEATURES_JSON),
         "test_rows": len(test),
         "prediction_timestamp": predicted_at.isoformat(),
     }

@@ -1,90 +1,210 @@
 @import "tailwindcss";
+@import "tw-animate-css";
 
-@theme {
-  --color-ink: #0c0f14;
-  --color-ink-2: #10141c;
-  --color-panel: #131a24;
-  --color-panel-2: #18202c;
-  --color-line: #242e3d;
-  --color-line-soft: #1b2330;
-  --color-paper: #e9e2d2;
-  --color-paper-dim: #c9c2b2;
-  --color-muted: #8b94a3;
-  --color-faint: #5b6575;
-  --color-amber: #f2a93b;
-  --color-amber-dim: #b97f22;
-  --color-teal: #5cc0b0;
-  --color-teal-dim: #3a7f74;
-  --color-red: #e15b64;
-  --color-red-dim: #93414a;
-  --color-green: #62b57c;
+@custom-variant dark (&:is(.dark *));
 
-  --font-display: var(--font-fraunces), "Georgia", serif;
-  --font-mono: var(--font-plex-mono), "SFMono-Regular", monospace;
-
-  --radius-xs: 3px;
+/* Cool paper/ink ops console: neutral cool surfaces, steel-blue accent. */
+:root {
+  --radius: 0.5rem;
+  --background: oklch(0.965 0.002 250);
+  --foreground: oklch(0.19 0.012 255);
+  --card: oklch(0.99 0.001 250);
+  --card-foreground: oklch(0.19 0.012 255);
+  --popover: oklch(0.99 0.001 250);
+  --popover-foreground: oklch(0.19 0.012 255);
+  --primary: oklch(0.19 0.012 255);
+  --primary-foreground: oklch(0.98 0.002 250);
+  --secondary: oklch(0.92 0.004 250);
+  --secondary-foreground: oklch(0.19 0.012 255);
+  --muted: oklch(0.93 0.004 250);
+  --muted-foreground: oklch(0.46 0.008 255);
+  --accent: oklch(0.92 0.004 250);
+  --accent-foreground: oklch(0.19 0.012 255);
+  --destructive: oklch(0.55 0.2 25);
+  --border: oklch(0.86 0.005 250);
+  --input: oklch(0.86 0.005 250);
+  --ring: oklch(0.5 0.09 249);
+  --chart-1: oklch(0.5 0.09 249);
+  --chart-2: oklch(0.65 0.12 160);
+  --chart-3: oklch(0.7 0.15 70);
+  --chart-4: oklch(0.6 0.18 25);
+  --chart-5: oklch(0.55 0.03 250);
+  --sidebar: oklch(0.955 0.002 250);
+  --sidebar-foreground: oklch(0.19 0.012 255);
+  --sidebar-primary: oklch(0.19 0.012 255);
+  --sidebar-primary-foreground: oklch(0.98 0.002 250);
+  --sidebar-accent: oklch(0.92 0.004 250);
+  --sidebar-accent-foreground: oklch(0.19 0.012 255);
+  --sidebar-border: oklch(0.86 0.005 250);
+  --sidebar-ring: oklch(0.5 0.09 249);
 }
 
-html,
-body {
-  background-color: var(--color-ink);
-  color: var(--color-paper);
+.dark {
+  --background: oklch(0.145 0.008 255);
+  --foreground: oklch(0.93 0.006 250);
+  --card: oklch(0.19 0.009 255);
+  --card-foreground: oklch(0.93 0.006 250);
+  --popover: oklch(0.19 0.009 255);
+  --popover-foreground: oklch(0.93 0.006 250);
+  --primary: oklch(0.93 0.006 250);
+  --primary-foreground: oklch(0.16 0.008 255);
+  --secondary: oklch(0.24 0.009 255);
+  --secondary-foreground: oklch(0.93 0.006 250);
+  --muted: oklch(0.24 0.009 255);
+  --muted-foreground: oklch(0.65 0.008 250);
+  --accent: oklch(0.24 0.009 255);
+  --accent-foreground: oklch(0.93 0.006 250);
+  --destructive: oklch(0.65 0.2 25);
+  --border: oklch(0.29 0.009 255);
+  --input: oklch(0.29 0.009 255);
+  --ring: oklch(0.68 0.1 249);
+  --chart-1: oklch(0.68 0.1 249);
+  --chart-2: oklch(0.72 0.12 160);
+  --chart-3: oklch(0.78 0.14 70);
+  --chart-4: oklch(0.68 0.16 25);
+  --chart-5: oklch(0.62 0.02 250);
+  --sidebar: oklch(0.13 0.008 255);
+  --sidebar-foreground: oklch(0.93 0.006 250);
+  --sidebar-primary: oklch(0.93 0.006 250);
+  --sidebar-primary-foreground: oklch(0.16 0.008 255);
+  --sidebar-accent: oklch(0.22 0.009 255);
+  --sidebar-accent-foreground: oklch(0.93 0.006 250);
+  --sidebar-border: oklch(0.26 0.009 255);
+  --sidebar-ring: oklch(0.68 0.1 249);
 }
 
-body {
-  font-family: var(--font-mono);
-  font-size: 13px;
-  line-height: 1.55;
-  -webkit-font-smoothing: antialiased;
+/* Accent overrides — steel is the default token set above. */
+[data-accent="teal"] {
+  --ring: oklch(0.6 0.1 175);
+  --chart-1: oklch(0.6 0.1 175);
+}
+[data-accent="amber"] {
+  --ring: oklch(0.68 0.13 75);
+  --chart-1: oklch(0.68 0.13 75);
+}
+.dark[data-accent="teal"] {
+  --ring: oklch(0.72 0.11 175);
+  --chart-1: oklch(0.72 0.11 175);
+}
+.dark[data-accent="amber"] {
+  --ring: oklch(0.78 0.14 75);
+  --chart-1: oklch(0.78 0.14 75);
 }
 
-::selection {
-  background: var(--color-amber);
-  color: var(--color-ink);
+/* Radius modifiers */
+[data-radius="sharp"] {
+  --radius: 0.2rem;
+}
+[data-radius="soft"] {
+  --radius: 0.9rem;
 }
 
-/* Thin scrollbars that match the console palette. */
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+  /* Compat aliases for any remaining legacy classes */
+  --color-ink: var(--background);
+  --color-ink-2: var(--sidebar);
+  --color-panel: var(--card);
+  --color-panel-2: var(--secondary);
+  --color-line: var(--border);
+  --color-line-soft: var(--border);
+  --color-paper: var(--foreground);
+  --color-paper-dim: var(--muted-foreground);
+  --color-faint: var(--muted-foreground);
+  --color-amber: var(--chart-3);
+  --color-amber-dim: var(--chart-3);
+  --color-teal: var(--chart-2);
+  --color-teal-dim: var(--chart-2);
+  --color-red: var(--destructive);
+  --color-red-dim: var(--destructive);
+  --color-green: var(--chart-2);
+  --font-display: var(--font-sans);
+  --radius-xs: var(--radius-sm);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply scroll-smooth;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  ::selection {
+    background: color-mix(in oklch, var(--ring) 35%, transparent);
+  }
+}
+
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--color-line) transparent;
-}
-*::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-*::-webkit-scrollbar-thumb {
-  background: var(--color-line);
-  border-radius: 4px;
-}
-*::-webkit-scrollbar-track {
-  background: transparent;
+  scrollbar-color: var(--border) transparent;
 }
 
-/* Hairline panel primitive. */
 .panel {
-  background-color: var(--color-panel);
-  border: 1px solid var(--color-line-soft);
-  border-radius: var(--radius-xs);
+  background-color: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
 }
 
 .panel-hover {
-  transition: border-color 120ms ease;
+  transition: border-color 120ms ease, background-color 120ms ease;
 }
 .panel-hover:hover {
-  border-color: var(--color-line);
+  border-color: color-mix(in oklch, var(--foreground) 20%, var(--border));
 }
 
-/* Recharts dark-theme adjustments. */
 .recharts-cartesian-axis-tick text {
-  fill: var(--color-faint);
+  fill: var(--muted-foreground);
   font-family: var(--font-mono);
   font-size: 10px;
 }
 .recharts-cartesian-grid line {
-  stroke: var(--color-line-soft);
+  stroke: var(--border);
 }
 .recharts-tooltip-cursor {
-  stroke: var(--color-line);
+  stroke: var(--border);
 }
 
 @keyframes pulse-dot {
@@ -100,11 +220,123 @@ body {
   animation: pulse-dot 2.4s ease-in-out infinite;
 }
 
+.route-draw {
+  stroke-dasharray: 920;
+  stroke-dashoffset: 920;
+  animation: route-draw 1.6s ease forwards;
+}
+.route-idle {
+  stroke-dasharray: 920;
+  stroke-dashoffset: 180;
+  animation: route-idle 7s ease-in-out infinite;
+}
+.route-courier {
+  offset-path: path("M40 280 C 120 280, 140 80, 220 80 S 340 280, 420 200 S 560 40, 600 120");
+  animation: route-courier 7s ease-in-out infinite;
+}
+.route-bar {
+  transform-origin: left center;
+  animation: route-bar 0.7s ease forwards;
+}
+
+.login-axiom-shade {
+  background:
+    linear-gradient(90deg, rgba(7, 8, 7, 0.82) 0%, rgba(7, 8, 7, 0.55) 46%, rgba(7, 8, 7, 0.15) 100%);
+}
+.login-axiom-stripe {
+  background-image: repeating-linear-gradient(
+    -58deg,
+    transparent,
+    transparent 10px,
+    rgba(255, 255, 255, 0.035) 10px,
+    rgba(255, 255, 255, 0.035) 11px
+  );
+}
+.login-tick {
+  animation: login-tick 1.2s ease-in-out infinite;
+}
+@keyframes login-tick {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes route-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes route-idle {
+  0%,
+  100% {
+    stroke-dashoffset: 220;
+  }
+  50% {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes route-courier {
+  0% {
+    offset-distance: 0%;
+  }
+  100% {
+    offset-distance: 100%;
+  }
+}
+@keyframes route-bar {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .live-dot {
+  .live-dot,
+  .route-draw,
+  .route-idle,
+  .route-courier,
+  .route-bar,
+  .login-tick {
     animation: none;
+  }
+  .route-draw,
+  .route-idle {
+    stroke-dashoffset: 0;
   }
   .panel-hover {
     transition: none;
   }
+}
+
+/* Density: opt-in utility for components that want a tighter pad/gap in compact mode. */
+.density-pad {
+  padding: 1rem;
+}
+.density-gap {
+  gap: 0.75rem;
+}
+[data-density="compact"] .density-pad {
+  padding: 0.5rem;
+}
+[data-density="compact"] .density-gap {
+  gap: 0.375rem;
+}
+[data-density="compact"] table :is(td, th) {
+  padding-block: 0.25rem;
+}
+
+/* Reduced motion preference (explicit UI toggle, distinct from OS media query). */
+[data-reduced-motion="true"] *,
+[data-reduced-motion="true"] *::before,
+[data-reduced-motion="true"] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
 }

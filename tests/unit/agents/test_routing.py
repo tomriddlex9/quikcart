@@ -87,6 +87,37 @@ def test_unresolvable_store_asks_clarification() -> None:
     assert "could not determine which store" in state["answer"]
 
 
+def test_plain_english_after_store_is_not_a_reference() -> None:
+    """"Which store has the highest ..." — `store` is the subject, not a reference."""
+    llm = FakeLLM(fail_tags=("[INTENT]", "[PLAN]"))
+    state = run_graph(
+        "Which store has the highest late delivery rate?",
+        registry=build_fake_registry(),
+        llm=llm,
+    )
+    assert state["needs_clarification"] is False
+    assert "get_kpi_summary" in called_tools(state)
+    assert state["evidence"]
+
+
+def test_mixed_document_question_falls_back_to_gold_and_rag() -> None:
+    """The smoke question must degrade to Gold metrics + Qdrant, not clarification."""
+    llm = FakeLLM(fail_tags=("[INTENT]", "[PLAN]"))
+    state = run_graph(
+        "Which store has the highest late delivery rate, and is there a company "
+        "document about handling delivery incidents?",
+        registry=build_fake_registry(),
+        llm=llm,
+    )
+    assert state["intent"] == "mixed"
+    assert state["needs_clarification"] is False
+    called = called_tools(state)
+    assert "get_kpi_summary" in called
+    assert "search_company_docs" in called
+    assert any(e.get("type") == "metric" for e in state["evidence"])
+    assert any(e.get("type") == "document" for e in state["evidence"])
+
+
 def test_llm_failure_falls_back_to_heuristic_routing() -> None:
     """A dead LLM at classification degrades to keyword routing, visibly."""
     llm = FakeLLM(fail_tags=("[INTENT]",))

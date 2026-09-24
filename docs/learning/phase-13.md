@@ -202,3 +202,15 @@ Acceptance gates (kit/07 Phase 13):
   interactive-chat UX.
 - Session memory is out of scope: `session_id` is recorded in the trace but
   the graph is stateless per request.
+
+## Post-live notes (from the interface smoke)
+
+- qwen3:4b can return empty content during the first ~2–4 minutes of CPU contention
+  (Spark boot + sentence-transformer load). The LLM client retries once and the graph's
+  deterministic heuristic fallback plans a grounded route (metrics + documents); every
+  observed live answer stayed grounded. First LLM-dependent stages can take ~70s while
+  retries exhaust.
+- The smoke-driven fixes that landed: store-reference detection ignores ordinary
+  subject words ("store has …"), and `has_unresolvable_store_reference` no longer
+  short-circuits those; heuristic policy keywords include "document" so mixed
+  analytics+policy questions degrade to a metric+document plan.

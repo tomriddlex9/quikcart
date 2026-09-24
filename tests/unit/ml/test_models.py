@@ -235,3 +235,41 @@ def test_anomaly_detection_finds_injected_spike(ml_fixture, spark_session) -> No
     spike = table.filter("store_id = 2").collect()
     assert spike, "injected spike on store 2 was not detected"
     assert all(row["model_version"] for row in spike)
+
+
+def test_anomaly_model_handles_decimal_money_columns(spark_session, tmp_path) -> None:
+    """Real Gold tables store gmv as NUMERIC (DecimalType), so toPandas yields
+    decimal.Decimal — the z-score math must not mix Decimal with float."""
+    root = tmp_path / "ml_lake"
+    tracking = tmp_path / "mlruns"
+    start = date(2026, 7, 15)
+    from decimal import Decimal
+
+    rows = []
+    for d in range(40):
+        day = start + timedelta(days=d)
+        for store in (1, 2):
+            for h in (10, 19):
+                rows.append((f"{day.isoformat()} {h:02d}:00:00", store, 5, 0,
+                             Decimal("1200.50"), 0.05, 25.0, 0.1))
+    hourly = spark_session.createDataFrame(
+        rows,
+        "metric_hour: string, store_id: bigint, orders_placed: bigint, "
+        "orders_cancelled: bigint, gmv: decimal(18,2), "
+        "payment_failure_rate: double, avg_delivery_minutes: double, "
+        "late_delivery_rate: double",
+    ).withColumn("metric_hour", F.to_timestamp("metric_hour"))
+    gpath = root / "gold" / "gold_store_hourly_metrics"
+    gpath.mkdir(parents=True)
+    hourly.write.format("delta").save(str(gpath))
+
+    result = detect_anomalies(
+        spark_session, root, tracking_uri=f"sqlite:///{tracking}/mlflow.db"
+    )
+    assert result["table"].endswith("gold_anomalies")
+    # Constant data yields zero anomalies: the empty contract table must still
+    # be written (built-but-empty), not crash on schema inference.
+    assert result["baseline_hits"] == 0
+    assert result["forest_hits"] == 0
+    table = spark_session.read.format("delta").load(result["table"])
+    assert table.count() == 0

@@ -40,6 +40,12 @@ Windows (no Make): run the commands shown by `make help` manually via `uv run ..
 - **Port conflicts**: if host port 5432 is already taken (e.g. a native PostgreSQL), set
   `POSTGRES_PORT` in your local `.env` to a free port (this dev machine uses 5434) and
   restart the profile. See `docs/learning/phase-1.md` for the full record.
+- **Compose profiles include dependencies**: when starting a service that depends on
+  PostgreSQL (e.g. Debezium), select both profiles:
+  `docker compose --profile core --profile streaming up -d`.
+- **First live LLM calls can be slow**: while Spark boot + embedding-model load contend
+  for CPU, Ollama may return empty replies for the first couple of minutes; the agent
+  retries and falls back to deterministic heuristics (grounded either way).
 - **OrbStack/Docker Desktop** must be running before `make core-up`.
 
 ## Current phase status

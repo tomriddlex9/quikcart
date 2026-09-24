@@ -68,6 +68,16 @@ _WORD_NUMBERS = {
     "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
 }
 
+# Ordinary words that may follow "store" in plain English ("which store has
+# the highest ...") — none of these is an attempted store reference.
+_NON_REFERENCE_WORDS = frozenset({
+    "a", "an", "and", "are", "as", "at", "be", "been", "being", "but", "by",
+    "can", "could", "did", "do", "does", "for", "from", "had", "has", "have",
+    "having", "how", "in", "is", "it", "its", "of", "on", "or", "per", "the",
+    "their", "them", "they", "this", "those", "to", "was", "were", "what",
+    "when", "where", "which", "who", "why", "will", "with", "would",
+})
+
 # Deterministic pre-filter for the action gate: no action language, no gate call.
 ACTION_KEYWORDS = ("restock", "replenish", "order more", "take action", "do something")
 
@@ -153,7 +163,11 @@ def has_unresolvable_store_reference(query: str) -> bool:
     if re.search(r"\b(?:that|this) store\b", lowered):
         return True
     match = re.search(r"\bstore\s+([a-z]+)\b", lowered)
-    return match is not None and match.group(1) not in _WORD_NUMBERS
+    return (
+        match is not None
+        and match.group(1) not in _WORD_NUMBERS
+        and match.group(1) not in _NON_REFERENCE_WORDS
+    )
 
 
 def extract_order_id(query: str) -> int | None:
@@ -164,7 +178,8 @@ def extract_order_id(query: str) -> int | None:
 def _heuristic_intent(query: str) -> IntentClassification:
     """Keyword fallback for classification when the LLM reply is unusable."""
     lowered = query.lower()
-    policy = any(k in lowered for k in ("refund", "policy", "sop", "manual", "complaint"))
+    policy = any(k in lowered for k in ("refund", "policy", "sop", "manual",
+                                        "complaint", "document"))
     prediction = any(k in lowered for k in ("forecast", "predict", "will ", "be late"))
     analytics = any(k in lowered for k in ("store", "revenue", "gmv", "order", "deliver",
                                            "inventor", "stock", "kpi", "cancel", "metric"))

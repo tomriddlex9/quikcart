@@ -23,6 +23,12 @@ MODEL_NAME = "operational_anomaly"
 METRICS = ["orders", "gmv", "cancel_rate", "payment_failure_rate", "avg_delivery_minutes"]
 Z_THRESHOLD = 3.0
 TRAILING_DAYS = 30
+GOLD_ANOMALIES_SCHEMA = (
+    "anomaly_type: string, store_id: long, observed_on: date, severity: string, "
+    "metric: string, observed_value: double, expected_value: double, "
+    "detector: string, model_name: string, model_version: string, "
+    "detected_at: timestamp"
+)
 
 
 def detect_anomalies(
@@ -34,6 +40,9 @@ def detect_anomalies(
     pdf = features.toPandas()
     if pdf.empty:
         raise ValueError("no anomaly feature rows — check gold inputs")
+    # Gold money columns (gmv) reach pandas as decimal.Decimal via toPandas;
+    # the z-score and IsolationForest math below needs plain float64.
+    pdf = pdf.astype({metric: "float64" for metric in METRICS})
 
     if tracking_uri:
         mlflow.set_tracking_uri(tracking_uri)
@@ -119,10 +128,15 @@ def detect_anomalies(
             }
         )
 
-    out = spark.createDataFrame(rows).withColumn(
-        "detected_at", F.col("detected_at").cast("timestamp")
-    )
     out_path = root / "gold" / "gold_anomalies"
+    if rows:
+        out = spark.createDataFrame(rows).withColumn(
+            "detected_at", F.col("detected_at").cast("timestamp")
+        )
+    else:
+        # No anomalies this run: persist the (empty) contract table so
+        # downstream readers see a built-but-empty mart, not a missing one.
+        out = spark.createDataFrame([], schema=GOLD_ANOMALIES_SCHEMA)
     out.write.format("delta").mode("overwrite").save(str(out_path))
     return {
         "baseline_hits": len(baseline_hits),

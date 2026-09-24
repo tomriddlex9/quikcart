@@ -30,6 +30,12 @@ class TestGenerate:
         assert generated.model == "fake-model"
         assert generated.notes == []
 
+    def test_json_shaped_reply_is_accepted(self) -> None:
+        llm = FakeLLM('{"sql": "SELECT order_id FROM orders LIMIT 20"}')
+        generated = generate_sql("list order ids", "postgres", schema=PG_SCHEMA, llm=llm)
+        assert generated.sql == "SELECT order_id FROM orders LIMIT 20"
+        assert generated.valid is True
+
     def test_the_prompt_carries_the_schema_and_question(self) -> None:
         llm = FakeLLM("SELECT order_id FROM orders")
         generate_sql("how many orders?", "postgres", schema=PG_SCHEMA, llm=llm)
@@ -92,6 +98,20 @@ class TestGenerate:
 
 
 class TestExtractSql:
+    def test_json_contract_reply_is_parsed(self) -> None:
+        reply = '{"sql": "SELECT count(*) FROM orders LIMIT 10"}'
+        assert extract_sql(reply) == "SELECT count(*) FROM orders LIMIT 10"
+
+    def test_json_reply_with_reasoning_and_fences(self) -> None:
+        reply = (
+            "<think>counting orders</think>\n"
+            '{"sql": "```sql\\nSELECT count(*) FROM orders\\n```"}'
+        )
+        assert extract_sql(reply) == "SELECT count(*) FROM orders"
+
+    def test_json_without_a_sql_field_falls_back_to_text_scanning(self) -> None:
+        assert extract_sql('{"answer": "no idea"}') == ""
+
     def test_reasoning_blocks_and_prose_are_dropped(self) -> None:
         reply = (
             "<think>The user wants a count.</think>\n"

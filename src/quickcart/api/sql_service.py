@@ -17,6 +17,8 @@ the result is a loud, degraded answer (never an exception dressed up as a
 successful one).
 """
 
+import contextlib
+import json
 import re
 import threading
 import time
@@ -46,7 +48,13 @@ from quickcart.lakehouse.common.paths import table_path
 log = structlog.get_logger(__name__)
 
 STATEMENT_TIMEOUT_SECONDS = 30.0
-GENERATE_MAX_TOKENS = 700
+# qwen3 spends tokens on reasoning before it emits content, so too small a
+# budget comes back empty. Measured locally with qwen3:4b on CPU: 700 tokens
+# always returned an empty reply, 1600 answers in roughly one to two minutes,
+# and 2400 runs past the client timeout in `agents.llm`. Generation is therefore
+# a slow request by nature; whatever does not fit the budget degrades with a
+# note instead of failing the call.
+GENERATE_MAX_TOKENS = 1600
 
 _FENCE_RE = re.compile(r"```(?:sql)?(.*?)```", re.IGNORECASE | re.DOTALL)
 _THINK_RE = re.compile(r"<think>.*?</think>", re.IGNORECASE | re.DOTALL)
@@ -64,7 +72,7 @@ GENERATE_SYSTEM_PROMPT = (
     "You are a SQL assistant for the QuickCart data platform. Translate the "
     "user's question into exactly ONE read-only SQL SELECT statement.\n"
     "Rules:\n"
-    "- Output SQL only. No prose, no explanation, no markdown fences.\n"
+    '- Reply with JSON only, shaped {"sql": "SELECT ..."}.\n'
     "- One statement. No semicolon-separated statements.\n"
     "- Read-only: never INSERT, UPDATE, DELETE, or any DDL.\n"
     "- Use only the tables and columns listed in the schema.\n"
@@ -304,8 +312,17 @@ def execute_sql(
 
 
 def extract_sql(reply: str) -> str:
-    """Pull the statement out of a model reply (fences, reasoning, prose)."""
+    """Pull the statement out of a model reply (JSON, fences, reasoning, prose).
+
+    The prompt asks for ``{"sql": ...}`` because small local models stay on
+    contract better in JSON mode, but a plain or fenced statement is accepted
+    too — the guard, not the parser, decides whether the result is usable.
+    """
     text = _THINK_RE.sub(" ", reply)
+    with contextlib.suppress(json.JSONDecodeError, TypeError):
+        payload = json.loads(text)
+        if isinstance(payload, dict) and isinstance(payload.get("sql"), str):
+            text = payload["sql"]
     if fence := _FENCE_RE.search(text):
         text = fence.group(1)
     match = _STATEMENT_START_RE.search(text)
@@ -376,7 +393,7 @@ def generate_sql(
         },
     ]
     try:
-        reply = llm.chat(messages, max_tokens=GENERATE_MAX_TOKENS)
+        reply = llm.chat(messages, json_mode=True, max_tokens=GENERATE_MAX_TOKENS)
     except Exception as exc:  # LLMError and any transport failure
         log.warning("sql.generate_failed", model=model, error=str(exc))
         collected.append(f"local model call failed: {exc}")

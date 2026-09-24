@@ -1,0 +1,18 @@
+[Unit]
+Description=QuickCart Streamlit dashboard
+Wants=network-online.target
+After=network-online.target docker.service
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/quikcart
+EnvironmentFile=-/home/ubuntu/quikcart/.env
+EnvironmentFile=-/home/ubuntu/quikcart/.env.aws-demo
+Environment=PATH=/home/ubuntu/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/ubuntu/.local/bin/uv run streamlit run dashboard/app.py --server.port 8501 --server.address 0.0.0.0 --server.headless true --browser.gatherUsageStats false
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

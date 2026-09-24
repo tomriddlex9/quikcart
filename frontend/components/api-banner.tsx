@@ -12,15 +12,14 @@ export function ApiBanner({ mode, error }: { mode: ApiMode; error?: string | nul
   return (
     <div
       role="status"
-      className="mb-5 flex items-start gap-2.5 border border-amber-dim/60 bg-amber/10 px-3.5 py-2.5 text-[12px] text-amber"
+      className="mb-4 flex items-start gap-2.5 rounded-xl border border-chart-3/30 bg-chart-3/5 px-3.5 py-2.5 text-sm"
     >
-      <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.75} />
-      <div>
-        <span className="font-semibold">API offline — demo data.</span> The QuickCart
-        FastAPI service at <code className="text-amber/90">{API_BASE}</code> did not
-        answer{error ? ` (${error})` : ""}. Everything on this page is a clearly
-        synthetic preview until you start the API, e.g.{" "}
-        <code className="text-amber/90">uv run python -m quickcart.api</code>.
+      <TriangleAlert className="mt-0.5 size-4 shrink-0 text-chart-3" strokeWidth={1.75} />
+      <div className="text-muted-foreground">
+        <span className="font-medium text-foreground">API offline — showing demo data.</span>{" "}
+        <code className="text-xs">{API_BASE}</code> did not answer
+        {error ? ` (${error})` : ""}. Start it with{" "}
+        <code className="text-xs">uv run python -m quickcart.api</code>.
       </div>
     </div>
   );

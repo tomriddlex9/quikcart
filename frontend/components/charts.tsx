@@ -1,6 +1,14 @@
 "use client";
 
 import type { ReactNode } from "react";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 
 export interface TooltipPayloadItem {
   name?: string;
@@ -22,19 +30,19 @@ export function ChartTooltip({
 }) {
   if (!active || !payload || payload.length === 0) return null;
   return (
-    <div className="border border-line bg-ink-2 px-3 py-2 text-[11px] shadow-none">
-      {label !== undefined ? <div className="mb-1 text-faint">{label}</div> : null}
+    <div className="rounded-lg border border-border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-md">
+      {label !== undefined ? <div className="mb-1 text-muted-foreground">{label}</div> : null}
       {payload.map((item, i) => {
         const numeric = typeof item.value === "number" ? item.value : Number(item.value);
         const text = format ? format(item.dataKey, numeric) : String(item.value);
         return (
           <div key={i} className="flex items-center gap-2 py-0.5">
             <span
-              className="inline-block h-2 w-2 rounded-full"
-              style={{ backgroundColor: item.color ?? "#8b94a3" }}
+              className="inline-block size-2 rounded-full"
+              style={{ backgroundColor: item.color ?? "var(--muted-foreground)" }}
             />
-            <span className="text-muted">{item.name}</span>
-            <span className="ml-auto pl-4 text-paper">{text}</span>
+            <span className="text-muted-foreground">{item.name}</span>
+            <span className="ml-auto pl-4 tabular-nums">{text}</span>
           </div>
         );
       })}
@@ -54,15 +62,13 @@ export function ChartShell({
   right?: ReactNode;
 }) {
   return (
-    <section className="panel px-4 py-4">
-      <div className="mb-3 flex items-baseline justify-between gap-3">
-        <div>
-          <h2 className="text-[12px] font-medium text-paper-dim">{title}</h2>
-          {note ? <div className="mt-0.5 text-[10.5px] text-faint">{note}</div> : null}
-        </div>
-        {right}
-      </div>
-      {children}
-    </section>
+    <Card size="sm">
+      <CardHeader>
+        <CardTitle className="text-sm">{title}</CardTitle>
+        {note ? <CardDescription className="text-xs">{note}</CardDescription> : null}
+        {right ? <CardAction>{right}</CardAction> : null}
+      </CardHeader>
+      <CardContent>{children}</CardContent>
+    </Card>
   );
 }

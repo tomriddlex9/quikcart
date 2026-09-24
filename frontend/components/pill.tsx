@@ -1,11 +1,17 @@
-import { cn } from "@/lib/cn";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 
+/**
+ * Status chip used across the operations pages. Kept as a thin wrapper over the
+ * shadcn Badge so existing `tone` call sites read the same while the palette
+ * comes from the theme tokens.
+ */
 const TONES = {
-  neutral: "border-line bg-panel-2 text-muted",
-  amber: "border-amber-dim/50 bg-amber/10 text-amber",
-  teal: "border-teal-dim/60 bg-teal/10 text-teal",
-  red: "border-red-dim/60 bg-red/10 text-red",
-  green: "border-green/40 bg-green/10 text-green",
+  neutral: "bg-secondary text-secondary-foreground",
+  amber: "bg-chart-3/12 text-chart-3",
+  teal: "bg-chart-2/12 text-chart-2",
+  red: "bg-destructive/12 text-destructive",
+  green: "bg-chart-2/12 text-chart-2",
 } as const;
 
 export type PillTone = keyof typeof TONES;
@@ -20,28 +26,20 @@ export function Pill({
   className?: string;
 }) {
   return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-xs border px-2 py-0.5 text-[10.5px] leading-5",
-        TONES[tone],
-        className,
-      )}
-    >
+    <Badge variant="secondary" className={cn("gap-1.5 font-normal", TONES[tone], className)}>
       {children}
-    </span>
+    </Badge>
   );
 }
 
 export function StatusDot({ tone }: { tone: PillTone }) {
   const color =
-    tone === "green"
-      ? "bg-green"
+    tone === "green" || tone === "teal"
+      ? "bg-chart-2"
       : tone === "red"
-        ? "bg-red"
+        ? "bg-destructive"
         : tone === "amber"
-          ? "bg-amber"
-          : tone === "teal"
-            ? "bg-teal"
-            : "bg-faint";
-  return <span className={cn("inline-block h-1.5 w-1.5 rounded-full", color)} />;
+          ? "bg-chart-3"
+          : "bg-muted-foreground";
+  return <span className={cn("inline-block size-1.5 rounded-full", color)} aria-hidden />;
 }

@@ -199,3 +199,21 @@ export interface ErDiagramResponse {
   tables: Array<{ name: string; columns: string[] }>;
   edges: ErEdge[];
 }
+
+// ---------------------------------------------------------------------------
+// Home command center — client-derived contracts. These are not part of the
+// FastAPI boundary; they are computed in the browser from existing endpoints
+// (kpis, live snapshot, anomalies, proposals, inventory risks) plus a small
+// set of illustrative demo-only figures (forecast accuracy, ticket volume)
+// for which no backend metric exists yet.
+// ---------------------------------------------------------------------------
+
+export type ActivityLogLevel = "info" | "warn" | "error";
+
+export interface ActivityLogEntry {
+  id: string;
+  ts: string;
+  level: ActivityLogLevel;
+  source: string;
+  message: string;
+}

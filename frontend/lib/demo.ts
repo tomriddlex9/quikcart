@@ -1,5 +1,7 @@
 import type {
   AnomalyRow,
+  DemandForecastRow,
+  DeliveryPrediction,
   InventoryRiskRow,
   Kpis,
   OrderTrendRow,
@@ -128,6 +130,24 @@ export const DEMO_ANOMALIES: AnomalyRow[] = [
   },
 ];
 
+export const DEMO_DELIVERY_PREDICTION: DeliveryPrediction = {
+  order_id: 88041,
+  store_id: 3,
+  late_probability: 0.73,
+  predicted_class: 1,
+  actual_class: 1,
+  predicted_at: "2026-09-22T18:30:00Z",
+  model_name: "delivery_delay_classifier",
+  model_version: "demo-run-3f9c1a (illustrative)",
+};
+
+export const DEMO_DEMAND_FORECASTS: DemandForecastRow[] = [
+  { store_id: 1, category: "dairy", day: "2026-09-22", forecast_date: "2026-09-23", expected_units: 342, actual_units: 351, predicted_at: "2026-09-22T23:05:00Z", model_name: "demand_forecast_daily", model_version: "demo-run-88b2c0 (illustrative)" },
+  { store_id: 1, category: "bakery", day: "2026-09-22", forecast_date: "2026-09-23", expected_units: 121, actual_units: 118, predicted_at: "2026-09-22T23:05:00Z", model_name: "demand_forecast_daily", model_version: "demo-run-88b2c0 (illustrative)" },
+  { store_id: 2, category: "dairy", day: "2026-09-22", forecast_date: "2026-09-23", expected_units: 296, actual_units: 289, predicted_at: "2026-09-22T23:05:00Z", model_name: "demand_forecast_daily", model_version: "demo-run-88b2c0 (illustrative)" },
+  { store_id: 3, category: "beverages", day: "2026-09-22", forecast_date: "2026-09-23", expected_units: 188, actual_units: null, predicted_at: "2026-09-22T23:05:00Z", model_name: "demand_forecast_daily", model_version: "demo-run-88b2c0 (illustrative)" },
+];
+
 export const DEMO_PROPOSALS: Proposal[] = [
   {
     proposal_id: 101,
@@ -208,6 +228,6 @@ export const DEMO_SYSTEM_STATUS: SystemStatus = {
     gold_customer_360: false,
     gold_inventory_health: false,
     gold_delivery_performance: false,
-    gold_anomalies: false,
+    gold_product_performance: false,
   },
 };

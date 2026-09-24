@@ -59,9 +59,25 @@ export type JsonObject = Record<string, unknown>;
 
 export interface DeliveryPrediction {
   order_id?: number | string;
+  store_id?: number;
   late_probability?: number;
   predicted_class?: number | boolean | string;
+  actual_class?: number | boolean | string;
   predicted_at?: string;
+  model_name?: string;
+  model_version?: string;
+  [key: string]: unknown;
+}
+
+export interface DemandForecastRow {
+  store_id?: number;
+  category?: string;
+  day?: string;
+  forecast_date?: string;
+  expected_units?: number;
+  actual_units?: number | null;
+  predicted_at?: string;
+  model_name?: string;
   model_version?: string;
   [key: string]: unknown;
 }

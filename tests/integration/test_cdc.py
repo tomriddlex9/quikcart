@@ -16,7 +16,6 @@ import pytest
 from quickcart.config.settings import get_settings
 from quickcart.db.connection import connect
 from quickcart.ingestion.cdc import apply_cdc_to_silver, build_cdc_query
-from quickcart.lakehouse.common.spark import build_spark
 
 pytestmark = [pytest.mark.integration, pytest.mark.slow]
 
@@ -96,7 +95,7 @@ def _mutate_source() -> int:
         return target
 
 
-def test_cdc_insert_update_delete_propagate(seeded_db, tmp_path) -> None:
+def test_cdc_insert_update_delete_propagate(seeded_db, tmp_path, spark_session) -> None:
     if not _connect_up():
         pytest.skip("Debezium Connect unreachable; run: docker compose --profile streaming up -d")
     _register_connector()
@@ -107,62 +106,59 @@ def test_cdc_insert_update_delete_propagate(seeded_db, tmp_path) -> None:
         pytest.fail("debezium connector did not reach RUNNING state")
 
     settings = get_settings()
-    spark = build_spark("quickcart-cdc-it", test=True)
+    spark = spark_session
     root = tmp_path / "lake"
     checkpoint = root / "checkpoints" / "cdc"
     cdc_bronze_path = root / "bronze" / "bronze_orders_cdc"
-    try:
-        # Snapshot ('r') events arrive first; wait for at least one CDC row.
-        deadline = time.time() + 120
-        while time.time() < deadline:
-            query = build_cdc_query(
-                spark, settings.redpanda_bootstrap_servers, root, checkpoint
-            )
-            query.processAllAvailable()
-            query.stop()
-            if cdc_bronze_path.exists() and (
-                spark.read.format("delta").load(str(cdc_bronze_path)).head(1)
-            ):
-                break
-            time.sleep(3)
-        else:
-            pytest.fail("no CDC rows arrived in bronze after 120s")
+    # Snapshot ('r') events arrive first; wait for at least one CDC row.
+    deadline = time.time() + 120
+    while time.time() < deadline:
+        query = build_cdc_query(
+            spark, settings.redpanda_bootstrap_servers, root, checkpoint
+        )
+        query.processAllAvailable()
+        query.stop()
+        if cdc_bronze_path.exists() and (
+            spark.read.format("delta").load(str(cdc_bronze_path)).head(1)
+        ):
+            break
+        time.sleep(3)
+    else:
+        pytest.fail("no CDC rows arrived in bronze after 120s")
 
-        snapshot_count = spark.read.format("delta").load(str(cdc_bronze_path)).count()
-        assert snapshot_count > 0
+    snapshot_count = spark.read.format("delta").load(str(cdc_bronze_path)).count()
+    assert snapshot_count > 0
 
-        target = _mutate_source()
-        deadline = time.time() + 120
-        expected = snapshot_count + 3  # update + insert + delete
-        while time.time() < deadline:
-            query = build_cdc_query(
-                spark, settings.redpanda_bootstrap_servers, root, checkpoint
-            )
-            query.processAllAvailable()
-            query.stop()
-            count = spark.read.format("delta").load(str(cdc_bronze_path)).count()
-            if count >= expected:
-                break
-            time.sleep(3)
-        else:
-            pytest.fail(f"expected {expected} CDC rows, got {count}")
+    target = _mutate_source()
+    deadline = time.time() + 120
+    expected = snapshot_count + 3  # update + insert + delete
+    while time.time() < deadline:
+        query = build_cdc_query(
+            spark, settings.redpanda_bootstrap_servers, root, checkpoint
+        )
+        query.processAllAvailable()
+        query.stop()
+        count = spark.read.format("delta").load(str(cdc_bronze_path)).count()
+        if count >= expected:
+            break
+        time.sleep(3)
+    else:
+        pytest.fail(f"expected {expected} CDC rows, got {count}")
 
-        bronze = spark.read.format("delta").load(str(cdc_bronze_path))
-        ops = {r["operation"] for r in bronze.filter("operation = 'd'").collect()}
-        assert "d" in ops or bronze.filter("operation = 'd'").count() >= 1
+    bronze = spark.read.format("delta").load(str(cdc_bronze_path))
+    ops = {r["operation"] for r in bronze.filter("operation = 'd'").collect()}
+    assert "d" in ops or bronze.filter("operation = 'd'").count() >= 1
 
-        # Silver apply: latest op per key wins — the inserted-then-deleted
-        # order must NOT appear; the UPDATE must be reflected.
-        metrics = apply_cdc_to_silver(spark, root)
-        assert metrics["deleted"] >= 1
-        silver = spark.read.format("delta").load(str(root / "silver" / "silver_orders"))
-        assert silver.filter("order_id = 990000001").count() == 0
-        updated = silver.filter(f"order_id = {target}").collect()
-        assert updated and updated[0]["status"] == "CANCELLED"
+    # Silver apply: latest op per key wins — the inserted-then-deleted
+    # order must NOT appear; the UPDATE must be reflected.
+    metrics = apply_cdc_to_silver(spark, root)
+    assert metrics["deleted"] >= 1
+    silver = spark.read.format("delta").load(str(root / "silver" / "silver_orders"))
+    assert silver.filter("order_id = 990000001").count() == 0
+    updated = silver.filter(f"order_id = {target}").collect()
+    assert updated and updated[0]["status"] == "CANCELLED"
 
-        # Idempotent re-apply of the same log keeps Silver state identical.
-        apply_cdc_to_silver(spark, root)
-        silver_after = spark.read.format("delta").load(str(root / "silver" / "silver_orders"))
-        assert silver_after.filter(f"order_id = {target}").collect()[0]["status"] == "CANCELLED"
-    finally:
-        spark.stop()
+    # Idempotent re-apply of the same log keeps Silver state identical.
+    apply_cdc_to_silver(spark, root)
+    silver_after = spark.read.format("delta").load(str(root / "silver" / "silver_orders"))
+    assert silver_after.filter(f"order_id = {target}").collect()[0]["status"] == "CANCELLED"

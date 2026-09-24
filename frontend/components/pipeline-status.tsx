@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { ExternalLink, FlaskConical } from "lucide-react";
+import { useState } from "react";
+import { Check, Copy, ExternalLink, FlaskConical } from "lucide-react";
 import { ApiBanner } from "@/components/api-banner";
 import { Pill, StatusDot } from "@/components/pill";
 import { EmptyState, Loading } from "@/components/states";
@@ -24,8 +25,31 @@ function tablePresent(value: unknown): { label: string; present: boolean | null 
   return { label: String(value), present: Boolean(value) };
 }
 
+const KNOWN_SERVICES = ["postgres", "redpanda", "qdrant", "mlflow"] as const;
+const SERVICE_BLURB: Record<string, string> = {
+  postgres: "operational source",
+  redpanda: "event broker",
+  qdrant: "vector retrieval",
+  mlflow: "experiment tracking",
+  debezium: "change data capture",
+  airflow: "batch orchestration",
+  seaweedfs: "S3 object store",
+};
+
+function serviceChips(services: Record<string, string>) {
+  const names = [
+    ...KNOWN_SERVICES.filter((s) => s in services),
+    ...Object.keys(services).filter((s) => !(KNOWN_SERVICES as readonly string[]).includes(s)),
+  ];
+  return names.map((name) => {
+    const up = (services[name] ?? "down").toLowerCase() === "up";
+    return { name, up, blurb: SERVICE_BLURB[name] ?? "service" };
+  });
+}
+
 export function PipelineStatus() {
   const status = useApiData<SystemStatus>("/api/v1/system/status", DEMO_SYSTEM_STATUS, 30_000);
+  const [copied, setCopied] = useState(false);
   const demo = status.mode !== "live";
   const data = status.data;
 
@@ -126,22 +150,69 @@ export function PipelineStatus() {
             )}
           </div>
 
-          <div className="panel flex flex-wrap items-center justify-between gap-3 border-amber-dim/40 px-4 py-3.5">
-            <div className="flex items-start gap-2.5">
-              <FlaskConical className="mt-0.5 h-4 w-4 shrink-0 text-amber" strokeWidth={1.75} />
-              <div className="text-[12px] leading-relaxed text-paper-dim">
-                Rows that fail validation never disappear — they are quarantined with structured
-                error codes. Review{" "}
-                <code className="text-amber/90">data/quarantine/quality_summary</code> after each
-                pipeline run to see what was rejected and why.
-              </div>
+          <div className="panel px-4 py-4">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-[12px] font-medium text-paper-dim">Data quality & quarantine</h2>
+              <button
+                type="button"
+                onClick={() => {
+                  void navigator.clipboard
+                    .writeText(JSON.stringify(data, null, 2))
+                    .then(() => setCopied(true))
+                    .catch(() => setCopied(false));
+                }}
+                className="flex items-center gap-1.5 border border-line px-2.5 py-1 text-[10.5px] text-muted transition-colors hover:text-paper"
+              >
+                {copied ? (
+                  <>
+                    <Check className="h-3 w-3 text-teal" strokeWidth={1.75} /> copied
+                  </>
+                ) : (
+                  <>
+                    <Copy className="h-3 w-3" strokeWidth={1.75} /> copy health JSON
+                  </>
+                )}
+              </button>
             </div>
-            <Link
-              href="/streamlit"
-              className="flex shrink-0 items-center gap-1.5 rounded-xs border border-line px-3 py-1.5 text-[11.5px] text-muted transition-colors hover:text-paper"
-            >
-              open Streamlit dashboard <ExternalLink className="h-3 w-3" strokeWidth={1.75} />
-            </Link>
+
+            <div className="flex flex-wrap gap-1.5">
+              {serviceChips(data.services ?? {}).map(({ name, up, blurb }) => (
+                <Pill key={name} tone={up ? "green" : "red"}>
+                  <StatusDot tone={up ? "green" : "red"} />
+                  {name}
+                  <span className="text-faint">· {blurb}</span>
+                </Pill>
+              ))}
+            </div>
+
+            <div className="mt-3 flex flex-wrap items-start justify-between gap-3 border-t border-line-soft pt-3.5">
+              <div className="flex max-w-[75ch] items-start gap-2.5">
+                <FlaskConical className="mt-0.5 h-4 w-4 shrink-0 text-amber" strokeWidth={1.75} />
+                <div className="text-[12px] leading-relaxed text-paper-dim">
+                  Rows that fail validation never disappear — they are quarantined with structured
+                  error codes. After each pipeline run,{" "}
+                  <code className="text-amber/90">data/quarantine/quality_summary</code> records
+                  what was rejected and why: the quality rule that fired, the source batch, row
+                  counts per check, and a pointer to the full quarantined rows so nothing is lost.
+                  Review it to tell a real data problem apart from a schema drift.
+                </div>
+              </div>
+              <Link
+                href="/streamlit"
+                className="flex shrink-0 items-center gap-1.5 rounded-xs border border-line px-3 py-1.5 text-[11.5px] text-muted transition-colors hover:text-paper"
+              >
+                open Streamlit Pipeline page{" "}
+                <ExternalLink className="h-3 w-3" strokeWidth={1.75} />
+              </Link>
+            </div>
+            <p className="mt-2 text-[10.5px] leading-relaxed text-faint">
+              In the Streamlit dashboard (:8501) pick the Pipeline page from the sidebar — it lists
+              run timings, per-check pass/fail and the quarantine summary from the same directory.{" "}
+              <span className="text-muted">
+                “copy health JSON” copies the raw /api/v1/system/status payload above to your
+                clipboard for tickets and runbooks.
+              </span>
+            </p>
           </div>
         </div>
       )}

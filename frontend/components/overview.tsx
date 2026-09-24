@@ -18,7 +18,7 @@ import { ChartShell, ChartTooltip } from "@/components/charts";
 import { KpiCard } from "@/components/kpi-card";
 import { PageHeader } from "@/components/page-header";
 import { RefreshIndicator } from "@/components/refresh-indicator";
-import { EmptyState, Loading } from "@/components/states";
+import { EmptyState, Skeleton } from "@/components/states";
 import { DEMO_KPIS, DEMO_STORES, DEMO_TREND } from "@/lib/demo";
 import { formatCompactINR, formatDate, formatINR, formatNumber, formatPercent } from "@/lib/format";
 import { useApiData } from "@/lib/use-api";
@@ -57,7 +57,11 @@ export function OverviewClient() {
       {demoMode ? <ApiBanner mode="demo" error={kpis.error ?? trend.error ?? stores.error} /> : null}
 
       {!kpis.data ? (
-        <Loading label="Waiting for the KPI endpoint…" />
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-[72px] rounded-xs border border-line-soft" />
+          ))}
+        </div>
       ) : (
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
           <KpiCard label="Gross merchandise value" value={formatCompactINR(kpis.data.gmv)} hint={formatINR(kpis.data.gmv)} />
@@ -84,7 +88,7 @@ export function OverviewClient() {
       <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-5">
         <div className="xl:col-span-3">
           {!trend.data ? (
-            <Loading label="Waiting for the trends endpoint…" />
+            <Skeleton className="h-[340px] rounded-xs border border-line-soft" />
           ) : trend.data.length === 0 ? (
             <EmptyState
               title="No order trend rows yet"
@@ -146,7 +150,7 @@ export function OverviewClient() {
 
         <div className="xl:col-span-2">
           {!stores.data ? (
-            <Loading label="Waiting for the stores endpoint…" />
+            <Skeleton className="h-[340px] rounded-xs border border-line-soft" />
           ) : stores.data.length === 0 ? (
             <EmptyState
               title="No store rows yet"

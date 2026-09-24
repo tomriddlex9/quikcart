@@ -20,7 +20,6 @@ from kafka.admin import KafkaAdminClient, NewTopic
 
 from quickcart.config.settings import get_settings
 from quickcart.ingestion.streaming import TOPIC, build_consumer_query
-from quickcart.lakehouse.common.spark import build_spark
 from quickcart.simulator.realtime import produce_orders
 
 pytestmark = [pytest.mark.integration, pytest.mark.slow]
@@ -58,7 +57,7 @@ def _bronze(spark, root: Path):
     return spark.read.format("delta").load(str(root / "bronze" / "bronze_order_events"))
 
 
-def test_streaming_end_to_end(tmp_path) -> None:
+def test_streaming_end_to_end(spark_session, tmp_path) -> None:
     if not _broker_up():
         pytest.skip("Redpanda unreachable; run: docker compose --profile streaming up -d")
 
@@ -69,7 +68,7 @@ def test_streaming_end_to_end(tmp_path) -> None:
     admin.close()
 
     producer = KafkaProducer(bootstrap_servers=settings.redpanda_bootstrap_servers, acks="all")
-    spark = build_spark("quickcart-stream-it", test=True)
+    spark = spark_session
     root = tmp_path / "lake"
     checkpoint = root / "checkpoints" / "bronze_order_events"
     try:
@@ -154,7 +153,6 @@ def test_streaming_end_to_end(tmp_path) -> None:
         assert quarantine.first()["_json"] == "{bad json"
     finally:
         producer.close()
-        spark.stop()
         admin = KafkaAdminClient(bootstrap_servers=settings.redpanda_bootstrap_servers)
         admin.delete_topics([topic])
         admin.close()

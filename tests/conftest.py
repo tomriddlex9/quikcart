@@ -39,6 +39,31 @@ def spark_session():
     spark.stop()
 
 
+@pytest.fixture(autouse=True)
+def _spark_session_health_guard(request):
+    """Fail the polluting test if it stops the shared Spark session.
+
+    ``build_spark`` uses ``getOrCreate``, so once the session-scoped
+    ``spark_session`` exists, any later ``build_spark`` call returns that same
+    session — and ``spark.stop()`` kills Spark for every subsequent test that
+    uses the fixture. Catch the stop at the source test instead of cascading
+    failures into unrelated modules.
+    """
+    yield
+    if "spark_session" not in request.node.fixturenames:
+        return
+    try:
+        spark = request.getfixturevalue("spark_session")
+    except (Exception, pytest.skip.Exception):  # fixture itself was skipped
+        return
+    if spark.sparkContext._jsc is None:  # pyspark's own stopped-context marker
+        pytest.fail(
+            "this test stopped the shared SparkSession — only the spark_session "
+            "fixture may stop it",
+            pytrace=False,
+        )
+
+
 @pytest.fixture(scope="session")
 def pipeline_run(seeded_db, spark_session, tmp_path_factory):
     """Export → bronze → silver → gold against a tmp data root, once per session."""

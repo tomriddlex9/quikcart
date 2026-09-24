@@ -1,15 +1,21 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { X } from "lucide-react";
 import { Pill } from "@/components/pill";
 import {
   EDGE_KIND_META,
+  JOURNEY_BADGE_EDGE,
+  JOURNEY_LANE_EDGES,
+  JOURNEY_LANE_META,
   MAP_EDGES,
   MAP_H,
   MAP_NODES,
   MAP_W,
   type EdgeKind,
+  type JourneyLane,
+  type JourneyState,
+  type LaneState,
   type MapEdge,
   type MapNode,
 } from "@/lib/system-map";
@@ -52,9 +58,37 @@ const LAYER_COLUMNS: Array<{ label: string; x: number }> = [
   { label: "serving", x: 1160 },
 ];
 
-export function SystemMap() {
+/** Lane owning a given edge id, if any (used by the data-journey overlay). */
+const LANE_BY_EDGE: Map<string, JourneyLane> = new Map(
+  (Object.keys(JOURNEY_LANE_EDGES) as JourneyLane[]).flatMap((lane) =>
+    JOURNEY_LANE_EDGES[lane].map((edgeId) => [edgeId, lane] as const),
+  ),
+);
+
+function laneDotClass(state: LaneState): string {
+  return state === "flowing" ? "bg-green" : state === "demo" ? "bg-amber" : "bg-faint";
+}
+
+function laneWord(state: LaneState): string {
+  return state === "flowing" ? "flowing" : state === "demo" ? "manual demo" : "idle";
+}
+
+function usePrefersReducedMotion(): boolean {
+  const [reduced, setReduced] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    setReduced(mq.matches);
+    const onChange = (e: MediaQueryListEvent) => setReduced(e.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  return reduced;
+}
+
+export function SystemMap({ journey = null }: { journey?: JourneyState | null }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [hoverId, setHoverId] = useState<string | null>(null);
+  const reducedMotion = usePrefersReducedMotion();
 
   const nodeById = useMemo(() => new Map(MAP_NODES.map((n) => [n.id, n])), []);
   const focusId = hoverId ?? selectedId;
@@ -75,7 +109,7 @@ export function SystemMap() {
   const selected = selectedId ? nodeById.get(selectedId) ?? null : null;
 
   function edgeOpacity(e: MapEdge): number {
-    if (!focusId) return 0.75;
+    if (!focusId) return journey && !LANE_BY_EDGE.has(e.id) ? 0.3 : 0.75;
     return connected.has(e.id) ? 1 : 0.12;
   }
 
@@ -134,16 +168,29 @@ export function SystemMap() {
                 if (!from || !to) return null;
                 const color = EDGE_KIND_META[e.kind].color;
                 const labelPos = midLabel(from, to);
+                const path = edgePath(from, to);
+                const lane = journey ? LANE_BY_EDGE.get(e.id) : undefined;
+                const laneState = journey && lane ? journey[lane] : undefined;
+                const showDot =
+                  laneState === "flowing" &&
+                  JOURNEY_BADGE_EDGE[lane ?? "batch"] === e.id;
                 return (
                   <g key={e.id} opacity={edgeOpacity(e)} style={{ transition: "opacity 150ms ease" }}>
                     <path
-                      d={edgePath(from, to)}
+                      d={path}
                       fill="none"
                       stroke={color}
                       strokeWidth={focusId && connected.has(e.id) ? 1.8 : 1.2}
                       strokeDasharray={e.kind === "cdc" ? "5 3" : undefined}
                       markerEnd={`url(#arrow-${e.kind})`}
                     />
+                    {showDot ? (
+                      <circle r={2.6} fill={JOURNEY_LANE_META[lane ?? "batch"].color} opacity={0.95}>
+                        {reducedMotion ? null : (
+                          <animateMotion dur="3.4s" repeatCount="indefinite" path={path} />
+                        )}
+                      </circle>
+                    ) : null}
                     <text
                       x={labelPos.x}
                       y={labelPos.y - 5}
@@ -158,6 +205,34 @@ export function SystemMap() {
                 );
               })}
             </svg>
+
+            {/* Journey badges — one per lane, on its badge edge */}
+            {journey
+              ? (Object.keys(JOURNEY_BADGE_EDGE) as JourneyLane[]).map((lane) => {
+                  const edge = MAP_EDGES.find((e) => e.id === JOURNEY_BADGE_EDGE[lane]);
+                  if (!edge) return null;
+                  const from = nodeById.get(edge.from);
+                  const to = nodeById.get(edge.to);
+                  if (!from || !to) return null;
+                  const pos = midLabel(from, to);
+                  const state = journey[lane];
+                  return (
+                    <div
+                      key={lane}
+                      className="pointer-events-none absolute z-10 -translate-x-1/2"
+                      style={{ left: pos.x, top: pos.y + 10 }}
+                    >
+                      <span className="inline-flex items-center gap-1.5 border border-line bg-ink-2/95 px-2 py-0.5 text-[9.5px] text-muted">
+                        <span className={`h-1.5 w-1.5 rounded-full ${laneDotClass(state)}`} />
+                        <span style={{ color: JOURNEY_LANE_META[lane].color }}>
+                          {JOURNEY_LANE_META[lane].label}
+                        </span>
+                        <span className="text-faint">{laneWord(state)}</span>
+                      </span>
+                    </div>
+                  );
+                })
+              : null}
 
             {/* Node layer */}
             {MAP_NODES.map((n) => (

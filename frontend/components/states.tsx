@@ -1,5 +1,15 @@
 import type { ReactNode } from "react";
 
+export function Skeleton({ className = "" }: { className?: string }) {
+  return (
+    <div
+      aria-hidden
+      className={`animate-pulse bg-panel-2 ${className}`}
+      style={{ animationDuration: "1.6s" }}
+    />
+  );
+}
+
 export function Loading({ label = "Loading…" }: { label?: string }) {
   return (
     <div className="panel flex items-center gap-3 px-4 py-6 text-[12px] text-muted">

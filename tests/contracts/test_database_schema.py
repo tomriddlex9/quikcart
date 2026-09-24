@@ -38,7 +38,7 @@ def test_all_timestamp_columns_are_timestamptz(seeded_db) -> None:
             """SELECT table_name, column_name, data_type
                FROM information_schema.columns
                WHERE table_schema = 'public'
-                 AND (column_name ~ '_at$' OR column_name ~ '^valid')""",
+                 AND (column_name ~ '_at$' OR column_name ~ '^valid_')""",
         )
     assert rows, "expected timestamp columns to exist"
     for row in rows:

@@ -305,3 +305,43 @@ export const MAP_EDGES: MapEdge[] = [
   { id: "e20", from: "fastapi", to: "nextjs", label: "serves", kind: "serve" },
   { id: "e21", from: "fastapi", to: "prom", label: "scrapes", kind: "ops" },
 ];
+
+// ---------------------------------------------------------------------------
+// Data journey overlay — lane state derived from /api/v1/system/status:
+//   batch     = at least one gold mart present on disk
+//   streaming = redpanda service up
+//   cdc       = debezium listed in services if present, else "manual demo"
+//   ai        = qdrant service up
+// ---------------------------------------------------------------------------
+
+export type JourneyLane = "batch" | "streaming" | "cdc" | "ai";
+
+export type LaneState = "flowing" | "idle" | "demo";
+
+export interface JourneyState {
+  batch: LaneState;
+  streaming: LaneState;
+  cdc: LaneState;
+  ai: LaneState;
+}
+
+export const JOURNEY_LANE_EDGES: Record<JourneyLane, string[]> = {
+  batch: ["e1", "e7", "e8", "e11", "e12"],
+  streaming: ["e4", "e5", "e6"],
+  cdc: ["e2", "e3"],
+  ai: ["e14", "e15", "e16"],
+};
+
+export const JOURNEY_BADGE_EDGE: Record<JourneyLane, string> = {
+  batch: "e8",
+  streaming: "e5",
+  cdc: "e3",
+  ai: "e16",
+};
+
+export const JOURNEY_LANE_META: Record<JourneyLane, { label: string; color: string }> = {
+  batch: { label: "batch", color: EDGE_KIND_META.batch.color },
+  streaming: { label: "streaming", color: EDGE_KIND_META.stream.color },
+  cdc: { label: "CDC", color: EDGE_KIND_META.cdc.color },
+  ai: { label: "AI / RAG", color: EDGE_KIND_META.rag.color },
+};

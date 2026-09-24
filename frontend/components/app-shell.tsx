@@ -4,6 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Bot,
+  Brain,
+  Database,
   Gauge,
   GitPullRequestArrow,
   LayoutList,
@@ -16,6 +18,8 @@ import type { ReactNode } from "react";
 
 const NAV = [
   { href: "/", label: "Overview", icon: Gauge },
+  { href: "/ml", label: "ML platform", icon: Brain },
+  { href: "/data", label: "Gold marts", icon: Database },
   { href: "/agent", label: "Agent console", icon: Bot },
   { href: "/system", label: "System map", icon: Workflow },
   { href: "/tech", label: "Tech stack", icon: Package },

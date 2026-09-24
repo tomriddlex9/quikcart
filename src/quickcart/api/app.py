@@ -22,6 +22,13 @@ from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
 
 from quickcart.api import catalog as catalog_reads
+from quickcart.api.cube_api import (
+    CubeOperateRequest,
+    CubeOperationError,
+    apply_cube_operation,
+    build_cube_state,
+)
+from quickcart.api.layer_ops import LayerOpsError, build_layers_catalog, layer_sample
 from quickcart.api.models import (
     ApproveRequest,
     CatalogLayer,
@@ -41,7 +48,12 @@ from quickcart.api.models import (
 )
 from quickcart.api.proposals import ProposalError, ProposalService
 from quickcart.api.sql_guard import SqlGuardError
-from quickcart.api.sql_service import SqlExecutionError, execute_sql, generate_sql
+from quickcart.api.sql_service import (
+    SqlExecutionError,
+    execute_sql,
+    generate_sql,
+    json_safe,
+)
 from quickcart.api.status import build_system_status
 from quickcart.config.settings import get_settings
 from quickcart.db.connection import connect
@@ -52,8 +64,21 @@ from quickcart.logging import configure_logging
 
 log = structlog.get_logger(__name__)
 
-# The Next.js console runs on either loopback spelling of port 3000.
+# Default console origins; overridden by QUICKCART_CORS_ORIGINS when set.
 CONSOLE_ORIGINS = ("http://localhost:3000", "http://127.0.0.1:3000")
+
+
+def _cors_origins() -> list[str]:
+    """Prefer A3's resolve_cors_origins when available; else env/default."""
+    try:
+        from quickcart.api.live import resolve_cors_origins
+
+        return list(resolve_cors_origins())
+    except ImportError:
+        raw = __import__("os").environ.get("QUICKCART_CORS_ORIGINS", "")
+        if raw.strip():
+            return [part.strip() for part in raw.split(",") if part.strip()]
+        return list(CONSOLE_ORIGINS)
 
 try:
     __version__ = importlib.metadata.version("quickcart-intelligence")
@@ -83,7 +108,12 @@ def _get_agent_service() -> Any | None:
 
 def _collect(df: DataFrame, limit: int | None = None) -> list[dict[str, Any]]:
     rows = df.limit(limit).collect() if limit is not None else df.collect()
-    return [row.asDict() for row in rows]
+    return [json_safe(row.asDict(recursive=True)) for row in rows]
+
+
+def _row_dict(row: Any) -> dict[str, Any]:
+    """JSON-safe Spark Row → dict (dates/Decimals serialize cleanly)."""
+    return json_safe(row.asDict(recursive=True))
 
 
 def _spark_session(request: Request) -> SparkSession:
@@ -117,11 +147,35 @@ def _translate(error: ProposalError) -> HTTPException:
 async def _lifespan(app: FastAPI):
     configure_logging(get_settings().log_level)
     log.info("api.startup", service="quickcart-api", version=__version__)
+    try:
+        from quickcart.api.gold_cache import warmup_gold_cache
+
+        readers = _readers_for_app(app)
+        if readers is not None:
+            warmup_gold_cache(readers)
+    except Exception as exc:  # warmup is best-effort
+        log.warning("api.gold_warmup_skipped", error=str(exc))
     yield
     spark = app.state.spark
     if app.state.spark_owned and spark is not None:
         log.info("api.shutdown", stopping_spark=True)
         spark.stop()
+
+
+def _readers_for_app(app: FastAPI) -> GoldReaders | None:
+    """Best-effort GoldReaders for startup warmup (may skip if Spark unavailable)."""
+    try:
+        if app.state.readers is not None:
+            return app.state.readers
+        spark = app.state.spark
+        if spark is None:
+            spark = _build_api_spark()
+            app.state.spark = spark
+            app.state.spark_owned = True
+        app.state.readers = GoldReaders(spark, app.state.data_root)
+        return app.state.readers
+    except Exception:
+        return None
 
 
 def create_app(
@@ -149,10 +203,21 @@ def create_app(
     app.add_middleware(CorrelationIdMiddleware)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=list(CONSOLE_ORIGINS),
+        allow_origins=_cors_origins(),
         allow_methods=["GET", "POST", "OPTIONS"],
         allow_headers=["*"],
     )
+
+    try:
+        from quickcart.api.live import register_live_routes
+
+        register_live_routes(app)
+    except ImportError:
+        log.warning("api.live_routes_unavailable")
+
+    from quickcart.api.sim import register_sim_routes
+
+    register_sim_routes(app)
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -177,7 +242,7 @@ def create_app(
         hourly = readers.store_hourly(store_id)
         return {
             "store_id": store_id,
-            "comparison": comparison.asDict() if comparison else None,
+            "comparison": _row_dict(comparison) if comparison else None,
             "hourly_sample": _collect(hourly, limit=168),
         }
 
@@ -204,8 +269,8 @@ def create_app(
         )
         delivery = deliveries.filter(F.col("order_id") == order_id).first()
         return {
-            "order": order.asDict(),
-            "delivery": delivery.asDict() if delivery else None,
+            "order": _row_dict(order),
+            "delivery": _row_dict(delivery) if delivery else None,
         }
 
     @app.get("/api/v1/anomalies")
@@ -235,7 +300,7 @@ def create_app(
             raise HTTPException(
                 status_code=404, detail=f"no delivery prediction for order {order_id}"
             )
-        return row.asDict()
+        return _row_dict(row)
 
     @app.get("/api/v1/predictions/demand")
     def demand_predictions(
@@ -350,6 +415,30 @@ def create_app(
     @app.get("/api/v1/system/status")
     def system_status(request: Request) -> dict[str, Any]:
         return build_system_status(request.app.state.data_root)
+
+    # --- layers console (medallion operations showcase) --------------------------
+    @app.get("/api/v1/layers/operations")
+    def layers_operations() -> dict[str, Any]:
+        return build_layers_catalog().model_dump()
+
+    @app.get("/api/v1/layers/sample/{layer}")
+    def layers_sample(layer: str) -> dict[str, Any]:
+        try:
+            return layer_sample(layer).model_dump()
+        except LayerOpsError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    # --- cube console (offline-capable OLAP showcase) -----------------------------
+    @app.get("/api/v1/cube/state")
+    def cube_state() -> dict[str, Any]:
+        return build_cube_state().model_dump()
+
+    @app.post("/api/v1/cube/operate")
+    def cube_operate(body: CubeOperateRequest) -> dict[str, Any]:
+        try:
+            return apply_cube_operation(body.op, body.args, body.state).model_dump()
+        except CubeOperationError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     # --- agent (Phase 13 owns the service) -----------------------------------------
     @app.post("/api/v1/agent/chat", response_model=ChatResponse)

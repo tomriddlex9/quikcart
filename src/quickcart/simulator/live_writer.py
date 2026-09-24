@@ -29,6 +29,7 @@ from psycopg.rows import dict_row
 
 from quickcart.config.settings import get_settings
 from quickcart.db.connection import connect
+from quickcart.live import sim_control as sim_control_module
 from quickcart.logging import configure_logging
 from quickcart.simulator import behavior
 from quickcart.simulator.generator import FAILURE_CODES, PAYMENT_METHOD_WEIGHTS, money
@@ -38,6 +39,7 @@ log = structlog.get_logger(__name__)
 
 INR = "INR"
 DEFAULT_CANCELLATION_PROBABILITY = 0.05
+SIM_CONTROL_POLL_SECONDS = 2.0
 ConnectFactory = Callable[[], psycopg.Connection]
 
 
@@ -811,6 +813,10 @@ async def transition_order(
     return tuple(statuses)
 
 
+def _orders_per_minute_to_rate_per_sec(orders_per_minute: float) -> float:
+    return max(orders_per_minute, 1e-6) / 60.0
+
+
 async def run_live(
     producer: EventProducer,
     *,
@@ -819,8 +825,21 @@ async def run_live(
     stop: asyncio.Event,
     connect_factory: ConnectFactory = connect,
     rng: np.random.Generator | None = None,
+    control_loader: Callable[[], sim_control_module.SimControlState] = (
+        sim_control_module.load_control
+    ),
+    control_poll_seconds: float = SIM_CONTROL_POLL_SECONDS,
 ) -> int:
-    """Create orders at the requested rate while lifecycle tasks run concurrently."""
+    """Create orders at the requested rate while lifecycle tasks run concurrently.
+
+    ``rate_per_sec`` (from ``--rate``) is only the *initial* default, used
+    until the shared ``sim_control.json`` file exists or is polled for the
+    first time. From then on, ``control_loader`` (``sim_control.load_control``
+    by default) is re-read roughly every ``control_poll_seconds`` and its
+    ``running``/``orders_per_minute``/``cancel_rate`` values drive the loop —
+    an operator flipping the demo dock's Stop switch or a slider pauses or
+    reshapes this writer without a restart.
+    """
     if rate_per_sec <= 0:
         raise ValueError("rate_per_sec must be positive")
     if burst is not None and burst <= 0:
@@ -830,14 +849,36 @@ async def run_live(
     with connect_factory() as conn:
         reference = load_reference_data(conn)
     delay = 1.0 / rate_per_sec
+    cancellation_probability = DEFAULT_CANCELLATION_PROBABILITY
+    running = True
     created = 0
     transitions: set[asyncio.Task[tuple[str, ...]]] = set()
+    loop = asyncio.get_running_loop()
+    # The CLI-provided rate stays authoritative until the first poll; only
+    # then does a (possibly still-default) sim_control.json take over.
+    next_control_poll = loop.time() + control_poll_seconds
 
     while not stop.is_set() and (burst is None or created < burst):
         completed = {task for task in transitions if task.done()}
         for task in completed:
             task.result()
         transitions.difference_update(completed)
+
+        now = loop.time()
+        if now >= next_control_poll:
+            control = control_loader()
+            running = control.running
+            delay = 1.0 / _orders_per_minute_to_rate_per_sec(control.orders_per_minute)
+            cancellation_probability = control.cancel_rate
+            next_control_poll = now + control_poll_seconds
+
+        if not running:
+            try:
+                await asyncio.wait_for(stop.wait(), timeout=control_poll_seconds)
+            except TimeoutError:
+                continue
+            continue
+
         with connect_factory() as conn:
             try:
                 order = create_order(conn, reference, producer, rng)
@@ -847,7 +888,13 @@ async def run_live(
                 continue
         transition_rng = np.random.default_rng(int(rng.integers(0, np.iinfo(np.int64).max)))
         task = asyncio.create_task(
-            transition_order(order, reference, producer, transition_rng),
+            transition_order(
+                order,
+                reference,
+                producer,
+                transition_rng,
+                cancellation_probability=cancellation_probability,
+            ),
             name=f"order-{order.order_id}",
         )
         transitions.add(task)

@@ -124,7 +124,7 @@ function StreamlitCard({
       </Card>
 
       <Dialog open={expanded} onOpenChange={setExpanded}>
-        <DialogContent className="h-[92vh] max-w-[96vw] grid-rows-[auto_1fr]">
+        <DialogContent className="h-[92vh] max-w-[96vw] grid-rows-[auto_1fr] sm:max-w-[96vw]">
           <DialogHeader>
             <DialogTitle>{name}</DialogTitle>
             <DialogDescription>{description}</DialogDescription>

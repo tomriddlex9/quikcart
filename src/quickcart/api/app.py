@@ -1,39 +1,59 @@
 """FastAPI application factory (kit/03 §14.1): the service boundary over Gold
-readers, ML predictions, the Phase 13 agent, and the human-approved proposal
-flow. All analytics reads go through GoldReaders (module-cached Spark); the
-operational DB is touched only by ProposalService.
+readers, ML predictions, the Phase 13 agent, the human-approved proposal flow,
+and the console's read-only SQL/catalog surface. All analytics reads go through
+GoldReaders (module-cached Spark); the operational DB is touched only by
+ProposalService and the read-only SQL/catalog adapters.
 """
 
 import contextlib
 import importlib.metadata
+from collections.abc import Callable
+from dataclasses import asdict
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Any
 
+import psycopg
 import structlog
-from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
 
+from quickcart.api import catalog as catalog_reads
 from quickcart.api.models import (
     ApproveRequest,
+    CatalogLayer,
+    CatalogPreviewResponse,
+    CatalogTablesResponse,
     ChatRequest,
     ChatResponse,
+    ErResponse,
     ProposalCreate,
     ProposalOut,
     ProposalStatus,
     RejectRequest,
+    SqlExecuteRequest,
+    SqlExecuteResponse,
+    SqlGenerateRequest,
+    SqlGenerateResponse,
 )
 from quickcart.api.proposals import ProposalError, ProposalService
+from quickcart.api.sql_guard import SqlGuardError
+from quickcart.api.sql_service import SqlExecutionError, execute_sql, generate_sql
 from quickcart.api.status import build_system_status
 from quickcart.config.settings import get_settings
+from quickcart.db.connection import connect
 from quickcart.lakehouse.common.paths import table_path
 from quickcart.lakehouse.common.spark import build_spark
 from quickcart.lakehouse.readers import GoldReaders
 from quickcart.logging import configure_logging
 
 log = structlog.get_logger(__name__)
+
+# The Next.js console runs on either loopback spelling of port 3000.
+CONSOLE_ORIGINS = ("http://localhost:3000", "http://127.0.0.1:3000")
 
 try:
     __version__ = importlib.metadata.version("quickcart-intelligence")
@@ -66,13 +86,20 @@ def _collect(df: DataFrame, limit: int | None = None) -> list[dict[str, Any]]:
     return [row.asDict() for row in rows]
 
 
-def _readers(request: Request) -> GoldReaders:
+def _spark_session(request: Request) -> SparkSession:
+    """The app's Spark session, built on first use (never at import time)."""
     state = request.app.state
     if state.spark is None:
         state.spark = _build_api_spark()
         state.spark_owned = True
+    return state.spark
+
+
+def _readers(request: Request) -> GoldReaders:
+    state = request.app.state
+    spark = _spark_session(request)
     if state.readers is None:
-        state.readers = GoldReaders(state.spark, state.data_root)
+        state.readers = GoldReaders(spark, state.data_root)
     return state.readers
 
 
@@ -102,19 +129,30 @@ def create_app(
     spark: SparkSession | None = None,
     data_root: Path | None = None,
     proposal_service: ProposalService | None = None,
+    connect_factory: Callable[..., psycopg.Connection] | None = None,
+    llm: Any | None = None,
 ) -> FastAPI:
     """Application factory. Parameters exist so tests can inject the shared
-    test Spark session, a tmp data root, and a service bound to the test DB."""
+    test Spark session, a tmp data root, a service bound to the test DB, a
+    connection factory for the read-only SQL/catalog paths, and a fake LLM."""
     app = FastAPI(title="QuickCart Intelligence API", version=__version__, lifespan=_lifespan)
     app.state.spark = spark
     app.state.spark_owned = spark is None
     app.state.data_root = data_root
     app.state.readers = None
     app.state.proposal_service = proposal_service or ProposalService()
+    app.state.connect_factory = connect_factory or connect
+    app.state.llm = llm
 
     from quickcart.observability import CorrelationIdMiddleware
 
     app.add_middleware(CorrelationIdMiddleware)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=list(CONSOLE_ORIGINS),
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["*"],
+    )
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -220,6 +258,93 @@ def create_app(
         if category is not None:
             df = df.filter(F.col("category") == category)
         return JSONResponse(content=_collect(df, limit=500))
+
+    # --- SQL console (read-only; guard + server-side read-only transaction) -------
+    @app.post("/api/v1/sql/execute", response_model=SqlExecuteResponse)
+    def sql_execute(body: SqlExecuteRequest, request: Request) -> dict[str, Any]:
+        state = request.app.state
+        spark = _spark_session(request) if body.source == "lakehouse" else None
+        try:
+            result = execute_sql(
+                body.source,
+                body.sql,
+                limit=body.limit,
+                connect_factory=state.connect_factory,
+                spark=spark,
+                data_root=state.data_root,
+            )
+        except SqlGuardError as exc:
+            raise HTTPException(status_code=400, detail=exc.detail) from exc
+        except SqlExecutionError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+        return asdict(result)
+
+    @app.post("/api/v1/sql/generate", response_model=SqlGenerateResponse)
+    def sql_generate(body: SqlGenerateRequest, request: Request) -> dict[str, Any]:
+        """Return a candidate statement from the local model. Never executes it,
+        and reports a degraded result (HTTP 200) when Ollama is unreachable."""
+        state = request.app.state
+        schema, tables, notes = catalog_reads.schema_summary(
+            body.source,
+            connect_factory=state.connect_factory,
+            data_root=state.data_root,
+            spark=state.spark,
+        )
+        generated = generate_sql(
+            body.question,
+            body.source,
+            schema=schema,
+            tables=tables,
+            llm=state.llm,
+            notes=notes,
+        )
+        return asdict(generated)
+
+    # --- data catalog --------------------------------------------------------------
+    @app.get("/api/v1/catalog/tables", response_model=CatalogTablesResponse)
+    def catalog_tables(request: Request) -> dict[str, Any]:
+        """Raw Postgres tables plus any Delta tables under the data root.
+
+        Delta columns come from the ``_delta_log`` metadata, so listing the
+        catalog never starts a Spark session (``state.spark`` is used only when
+        a session already exists)."""
+        state = request.app.state
+        return catalog_reads.list_tables(
+            connect_factory=state.connect_factory,
+            data_root=state.data_root,
+            spark=state.spark,
+        )
+
+    @app.get(
+        "/api/v1/catalog/tables/{layer}/{name}/preview",
+        response_model=CatalogPreviewResponse,
+    )
+    def catalog_preview(
+        layer: CatalogLayer,
+        name: str,
+        request: Request,
+        limit: Annotated[int, Query(ge=1, le=catalog_reads.PREVIEW_ROW_CAP)] = 50,
+    ) -> dict[str, Any]:
+        state = request.app.state
+        spark = _spark_session(request) if layer != catalog_reads.RAW_LAYER else None
+        try:
+            return catalog_reads.preview_table(
+                layer,
+                name,
+                limit=limit,
+                connect_factory=state.connect_factory,
+                spark=spark,
+                data_root=state.data_root,
+            )
+        except catalog_reads.CatalogError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+    @app.get("/api/v1/catalog/er", response_model=ErResponse)
+    def catalog_er(request: Request) -> dict[str, Any]:
+        try:
+            return catalog_reads.entity_relationships(request.app.state.connect_factory)
+        except catalog_reads.CatalogError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
     # --- system map (frontend) ----------------------------------------------------
     @app.get("/api/v1/system/status")

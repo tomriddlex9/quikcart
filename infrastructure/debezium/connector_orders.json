@@ -8,7 +8,7 @@
     "database.password": "${POSTGRES_PASSWORD}",
     "database.dbname": "${POSTGRES_DB}",
     "topic.prefix": "quickcart",
-    "table.include.list": "public.orders,public.inventory,public.payments",
+    "table.include.list": "public.orders,public.inventory,public.payments,public.order_items,public.deliveries",
     "publication.name": "quickcart_pub",
     "plugin.name": "pgoutput",
     "snapshot.mode": "initial",

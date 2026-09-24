@@ -82,133 +82,133 @@ Use this file as the execution tracker. Check items only after tests/acceptance 
 
 ## Phase 5 — Quality + optimization
 
-- [ ] Bad-data injection framework
-- [ ] Rule catalog
-- [ ] Quality metrics
-- [ ] Delta MERGE
-- [ ] SCD2
-- [ ] partition-pruning experiment
-- [ ] broadcast-join experiment
-- [ ] shuffle experiment
-- [ ] skew experiment
-- [ ] small-file experiment
+- [x] Bad-data injection framework
+- [x] Rule catalog
+- [x] Quality metrics
+- [x] Delta MERGE
+- [x] SCD2
+- [x] partition-pruning experiment
+- [x] broadcast-join experiment
+- [x] shuffle experiment
+- [x] skew experiment
+- [x] small-file experiment
 
 ## Phase 6 — Object storage
 
-- [ ] SeaweedFS profile
-- [ ] S3 bucket bootstrap
-- [ ] Spark S3A config
-- [ ] storage-backend abstraction
-- [ ] S3 Delta smoke test
+- [x] SeaweedFS profile
+- [x] S3 bucket bootstrap
+- [x] Spark S3A config
+- [x] storage-backend abstraction
+- [x] S3 Delta smoke test
 
 ## Phase 7 — Streaming
 
-- [ ] Redpanda profile
-- [ ] topic bootstrap
-- [ ] event schema/contracts
-- [ ] live simulator producer
-- [ ] Structured Streaming consumer
-- [ ] checkpoints
-- [ ] malformed-event handling
-- [ ] event-time/watermark exercise
-- [ ] restart/replay test
+- [x] Redpanda profile
+- [x] topic bootstrap
+- [x] event schema/contracts
+- [x] live simulator producer
+- [x] Structured Streaming consumer
+- [x] checkpoints
+- [x] malformed-event handling
+- [x] event-time/watermark exercise
+- [x] restart/replay test
 
 ## Phase 8 — CDC
 
-- [ ] PostgreSQL logical replication config
-- [ ] Debezium connector
-- [ ] orders CDC
-- [ ] inventory CDC
-- [ ] payments CDC
-- [ ] CDC Bronze adapter
-- [ ] Silver MERGE from CDC
-- [ ] insert/update/delete demo
+- [x] PostgreSQL logical replication config
+- [x] Debezium connector
+- [x] orders CDC
+- [x] inventory CDC
+- [x] payments CDC
+- [x] CDC Bronze adapter
+- [x] Silver MERGE from CDC
+- [x] insert/update/delete demo
 
 ## Phase 9 — Airflow
 
-- [ ] Airflow profile
-- [ ] supplier ingestion DAG
-- [ ] Bronze→Silver DAG
-- [ ] Silver→Gold DAG
-- [ ] quality gate task
-- [ ] weather DAG
-- [ ] backfill/retry documentation
+- [x] Airflow profile
+- [x] supplier ingestion DAG
+- [x] Bronze→Silver DAG
+- [x] Silver→Gold DAG
+- [x] quality gate task
+- [x] weather DAG
+- [x] backfill/retry documentation
 
 ## Phase 10 — Dashboard
 
-- [ ] Streamlit shell
-- [ ] Overview page
-- [ ] Stores page
-- [ ] Inventory page
-- [ ] Delivery page
-- [ ] Customers page
-- [ ] Products page
-- [ ] Pipeline quality page
+- [x] Streamlit shell
+- [x] Overview page
+- [x] Stores page
+- [x] Inventory page
+- [x] Delivery page
+- [x] Customers page
+- [x] Products page
+- [x] Pipeline quality page
 
 ## Phase 11 — ML
 
-- [ ] MLflow profile
-- [ ] delivery feature table
-- [ ] delivery baseline
-- [ ] delivery model
-- [ ] demand feature table
-- [ ] demand baseline
-- [ ] demand model
-- [ ] anomaly baseline
-- [ ] anomaly model/rules
-- [ ] write predictions to Gold
-- [ ] dashboard predictions
+- [x] MLflow profile
+- [x] delivery feature table
+- [x] delivery baseline
+- [x] delivery model
+- [x] demand feature table
+- [x] demand baseline
+- [x] demand model
+- [x] anomaly baseline
+- [x] anomaly model/rules
+- [x] write predictions to Gold
+- [x] dashboard predictions
 
 ## Phase 12 — RAG
 
-- [ ] Qdrant profile
-- [ ] internal docs fixtures
-- [ ] chunking
-- [ ] local embeddings
-- [ ] index/upsert
-- [ ] retriever
-- [ ] retrieval evaluation set
-- [ ] grounded answer function
+- [x] Qdrant profile
+- [x] internal docs fixtures
+- [x] chunking
+- [x] local embeddings
+- [x] index/upsert
+- [x] retriever
+- [x] retrieval evaluation set
+- [x] grounded answer function
 
 ## Phase 13 — Agent
 
-- [ ] Ollama config
-- [ ] typed tool interfaces
-- [ ] SQL analytics tool
-- [ ] inventory/store tools
-- [ ] ML tools
-- [ ] RAG tool
-- [ ] LangGraph state
-- [ ] routing
-- [ ] bounded loop
-- [ ] agent traces
-- [ ] agent evaluation suite
+- [x] Ollama config
+- [x] typed tool interfaces
+- [x] SQL analytics tool
+- [x] inventory/store tools
+- [x] ML tools
+- [x] RAG tool
+- [x] LangGraph state
+- [x] routing
+- [x] bounded loop
+- [x] agent traces
+- [x] agent evaluation suite
 
 ## Phase 14 — FastAPI + actions
 
-- [ ] FastAPI app
-- [ ] health route
-- [ ] analytics routes
-- [ ] prediction routes
-- [ ] agent route
-- [ ] proposal model
-- [ ] proposal validation
-- [ ] approve/reject routes
-- [ ] simulated action executor
-- [ ] audit trail
-- [ ] approval UI
+- [x] FastAPI app
+- [x] health route
+- [x] analytics routes
+- [x] prediction routes
+- [x] agent route
+- [x] proposal model
+- [x] proposal validation
+- [x] approve/reject routes
+- [x] simulated action executor
+- [x] audit trail
+- [x] approval UI
 
 ## Phase 15 — Hardening
 
-- [ ] GitHub Actions
-- [ ] integration test profile
-- [ ] structured logs
-- [ ] correlation IDs
+- [x] GitHub Actions
+- [x] integration test profile
+- [x] structured logs
+- [x] correlation IDs
 - [ ] Prometheus metrics
 - [ ] Grafana profile/dashboards
-- [ ] final architecture diagrams
+- [x] final architecture diagrams
 - [ ] model cards
 - [ ] RAG evaluation report
 - [ ] agent evaluation report
-- [ ] final end-to-end demo script
+- [x] final end-to-end demo script
 - [ ] final clean-clone validation

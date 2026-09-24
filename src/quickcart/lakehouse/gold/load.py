@@ -4,15 +4,17 @@ from pathlib import Path
 
 from pyspark.sql import SparkSession
 
-from quickcart.lakehouse.common.paths import table_path
+from quickcart.config.settings import get_settings
+from quickcart.lakehouse.common.paths import table_location, table_path
 from quickcart.lakehouse.gold.marts import MARTS
 
 
 def _silver(spark: SparkSession, root: Path | None, table: str):
-    path = table_path("silver", table, root)
-    if not path.exists():
-        raise FileNotFoundError(f"missing silver table {table}; run the silver step first")
-    return spark.read.format("delta").load(str(path))
+    if get_settings().storage_backend != "s3":
+        path = table_path("silver", table, root)
+        if not path.exists():
+            raise FileNotFoundError(f"missing silver table {table}; run the silver step first")
+    return spark.read.format("delta").load(table_location("silver", table, root))
 
 
 def run_gold(spark: SparkSession, root: Path | None = None) -> dict[str, int]:
@@ -54,6 +56,6 @@ def run_gold(spark: SparkSession, root: Path | None = None) -> dict[str, int]:
 
     counts: dict[str, int] = {}
     for table, df in outputs.items():
-        df.write.format("delta").mode("overwrite").save(str(table_path("gold", table, root)))
+        df.write.format("delta").mode("overwrite").save(table_location("gold", table, root))
         counts[table] = df.count()
     return counts

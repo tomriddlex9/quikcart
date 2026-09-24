@@ -50,7 +50,37 @@ Windows (no Make): run the commands shown by `make help` manually via `uv run ..
 | 1 — PostgreSQL + deterministic simulator | ✅ Complete |
 | 2 — SQL analytics foundation | ✅ Complete |
 | 3 — PySpark fundamentals | ✅ Complete |
-| 4–15 | ⏳ Pending (see `kit/TASKS.md`) |
+| 4 — Delta Medallion MVP (Bronze/Silver/Gold) | ✅ Complete |
+| 5 — Quality rules, MERGE, SCD2, optimization | ✅ Complete |
+| 6 — S3-compatible object storage | ✅ Complete |
+| 7 — Streaming (Redpanda + Structured Streaming) | ✅ Complete |
+| 8 — CDC (Debezium) | ✅ Complete |
+| 9 — Airflow orchestration | ✅ Complete |
+| 10 — Streamlit operations dashboard | ✅ Complete |
+| 11 — ML + MLflow (3 models, predictions to Gold) | ✅ Complete |
+| 12 — RAG (Qdrant + local embeddings) | ✅ Complete |
+| 13 — LangGraph agent + Ollama | ✅ Complete |
+| 14 — FastAPI + human-approved actions | ✅ Complete |
+| 15 — CI, monitoring, final demo | ✅ Complete |
+
+### Running the stack
+
+```bash
+make core-up        # PostgreSQL
+make storage-up     # SeaweedFS S3 (phase 6)
+make streaming-up   # Redpanda + Debezium (phases 7-8)
+docker compose --profile orchestration up -d   # Airflow :8090
+docker compose --profile ml up -d              # MLflow :5000
+docker compose --profile ai up -d              # Qdrant :6333
+```
+
+### Interfaces
+
+- **Streamlit operations dashboard**: `uv run streamlit run dashboard/app.py` (http://localhost:8501)
+- **Showcase frontend (Next.js)**: `cd frontend && npm install && npm run dev` (http://localhost:3000) — KPIs/charts, agent chat console, interactive system map, technologies, proposals, logs; consumes the FastAPI below
+- **FastAPI**: `uv run python -m quickcart.api` (http://localhost:8000, OpenAPI at /docs)
+- **Agent CLI**: `uv run python -m quickcart.agents.cli "Why are deliveries late at store 8 today?"`
+- End-to-end demo script: `scripts/demo.sh`
 
 ### Phase 0–3 commands
 

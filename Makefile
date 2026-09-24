@@ -56,3 +56,28 @@ gold: ## Phase 4: build the five Gold marts from Silver
 
 lakehouse: ## Phase 4: full Bronze -> Silver -> Gold pipeline (stops on quality-gate failure)
 	uv run python -m quickcart.lakehouse.pipeline all
+
+storage-up: ## Phase 6: start SeaweedFS (storage profile) and create the lakehouse bucket
+	docker compose --profile storage up -d
+	infrastructure/seaweedfs/bootstrap_bucket.sh
+
+storage-down: ## Stop SeaweedFS
+	docker compose --profile storage down
+
+streaming-up: ## Phase 7: start Redpanda + console (streaming profile) and create topics
+	docker compose --profile streaming up -d
+	docker exec quickcart-redpanda-1 rpk topic create quickcart.order-events.v1 --partitions 3 --replicas 1 || true
+	docker exec quickcart-redpanda-1 rpk topic create quickcart.app-events.v1 --partitions 3 --replicas 1 || true
+	docker exec quickcart-redpanda-1 rpk topic create quickcart.rider-events.v1 --partitions 3 --replicas 1 || true
+
+streaming-down: ## Stop Redpanda
+	docker compose --profile streaming down
+
+stream-consumer: ## Phase 7: run the Structured Streaming consumer (long-running; Ctrl-C to stop)
+	uv run python -m quickcart.ingestion.streaming
+
+stream-consumer-once: ## Phase 7: consume one micro-batch then exit (smoke test)
+	uv run python -m quickcart.ingestion.streaming --once
+
+simulator-live: ## Phase 7: publish live order events (--rate orders/sec, --orders total)
+	uv run python -m quickcart.simulator.realtime --rate 2 --orders 50

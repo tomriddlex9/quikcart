@@ -1,0 +1,12 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: quickcart-prometheus-self
+    static_configs:
+      - targets: ["localhost:9090"]
+  # Local-demo scraping targets: FastAPI (when `make api-up`) and whatever
+  # exporters are active. Kept minimal per kit/01 §16 (optional profile).
+  - job_name: quickcart-api
+    static_configs:
+      - targets: ["host.docker.internal:8000"]

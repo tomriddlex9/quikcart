@@ -7,6 +7,7 @@ services:
   postgres:
     image: postgres:17.11
     profiles: ["core"]
+    command: ["postgres", "-c", "wal_level=logical"]  # Phase 8 CDC prerequisite
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-quickcart}
       POSTGRES_USER: ${POSTGRES_USER:-quickcart_app}
@@ -23,5 +24,153 @@ services:
       retries: 12
       start_period: 5s
 
+  # Phase 6: S3-compatible object storage (SeaweedFS). S3 API on 8333,
+  # admin/filer on 9333/8888. Bucket is created by infrastructure/seaweedfs/bootstrap_bucket.sh
+  seaweedfs:
+    image: chrislusf/seaweedfs:3.85
+    profiles: ["storage"]
+    command: ["server", "-s3", "-dir=/data", "-s3.port=8333"]
+    ports:
+      - "127.0.0.1:8333:8333"
+      - "127.0.0.1:9333:9333"
+    volumes:
+      - seaweeddata:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9333/status >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+  # Phase 7: Kafka-compatible event streaming (Redpanda single broker).
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.3.6
+    profiles: ["streaming"]
+    command:
+      - redpanda
+      - start
+      - --smp=1
+      - --memory=512M
+      - --overprovisioned
+      - --kafka-addr=PLAINTEXT://0.0.0.0:9092,EXTERNAL://0.0.0.0:19092
+      - --advertise-kafka-addr=PLAINTEXT://redpanda:9092,EXTERNAL://127.0.0.1:9092
+    ports:
+      - "127.0.0.1:9092:19092"
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true'"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  redpanda-console:
+    image: docker.redpanda.com/redpandadata/console:v2.8.0
+    profiles: ["streaming"]
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      redpanda:
+        condition: service_healthy
+
+  # Phase 8: CDC from PostgreSQL into Redpanda (kit pins 3.6.3.Final; Debezium
+  # publishes current images to Quay — Docker Hub stops at 3.0.0).
+  debezium:
+    image: quay.io/debezium/connect:3.6.3.Final
+    profiles: ["streaming"]
+    environment:
+      BOOTSTRAP_SERVERS: redpanda:9092
+      GROUP_ID: quickcart-debezium
+      CONFIG_STORAGE_TOPIC: debezium_configs
+      OFFSET_STORAGE_TOPIC: debezium_offsets
+      STATUS_STORAGE_TOPIC: debezium_status
+      KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+      VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+    ports:
+      - "127.0.0.1:8083:8083"
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+  # Phase 9: batch orchestration. Runs as root locally only so the container
+  # can write the mounted lakehouse; runs the project via `uv run` with the
+  # venv kept inside the container (UV_PROJECT_ENVIRONMENT).
+  airflow:
+    build: infrastructure/airflow
+    profiles: ["orchestration"]
+    command: standalone
+    user: root
+    environment:
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/dags
+      UV_PROJECT_ENVIRONMENT: /tmp/quickcart-venv
+      UV_CACHE_DIR: /tmp/uv-cache
+      QUICKCART_DATA_ROOT: /opt/airflow/project/data
+      QUICKCART_STORAGE_BACKEND: local
+      POSTGRES_HOST: host.docker.internal
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_DB: ${POSTGRES_DB:-quickcart}
+      POSTGRES_USER: ${POSTGRES_USER:-quickcart_app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-quickcart_app_dev}
+    ports:
+      - "127.0.0.1:8090:8080"
+    volumes:
+      - ./orchestration/dags:/opt/airflow/dags:ro
+      - .:/opt/airflow/project
+
+  # Phase 11: experiment tracking. SQLite backend + local artifact store —
+  # zero-cost local profile per kit/01 §19.
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v3.16.0
+    profiles: ["ml"]
+    command: >
+      mlflow server --host 0.0.0.0 --port 5000
+      --backend-store-uri sqlite:////data/mlflow.db
+      --artifacts-destination /data/artifacts
+    ports:
+      - "127.0.0.1:5000:5000"
+    volumes:
+      - mlflowdata:/data
+
+  # Phase 12: vector store for RAG (kit/01 pins Qdrant).
+  qdrant:
+    image: qdrant/qdrant:v1.13.2
+    profiles: ["ai"]
+    ports:
+      - "127.0.0.1:6333:6333"
+    volumes:
+      - qdrantdata:/qdrant/storage
+
+  # Phase 15: optional observability profile (kit/01 §16).
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    profiles: ["monitoring"]
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.path=/prometheus"]
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./infrastructure/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - promdata:/prometheus
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    profiles: ["monitoring"]
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: quickcart_grafana_dev
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - grafanadata:/var/lib/grafana
+
 volumes:
   pgdata:
+  seaweeddata:
+  mlflowdata:
+  qdrantdata:
+  promdata:
+  grafanadata:

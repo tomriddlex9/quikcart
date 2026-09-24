@@ -1,0 +1,122 @@
+[
+  {
+    "question_id": "Q01",
+    "question": "A customer received spoiled milk that expires today. Are they eligible for a full refund, and within what time window?",
+    "expected_doc": "refund_policy",
+    "expected_section": "Refund eligibility"
+  },
+  {
+    "question_id": "Q02",
+    "question": "How is an approved refund paid out, and is there an incentive if the customer accepts store credit?",
+    "expected_doc": "refund_policy",
+    "expected_section": "Refund methods"
+  },
+  {
+    "question_id": "Q03",
+    "question": "Three items are missing from a six-item order. How should the item refunds and the delivery fee be handled?",
+    "expected_doc": "refund_policy",
+    "expected_section": "Partial refunds"
+  },
+  {
+    "question_id": "Q04",
+    "question": "What stock situation triggers an emergency restock, and who must the store escalate to?",
+    "expected_doc": "inventory_sop",
+    "expected_section": "Reorder triggers and emergency restock"
+  },
+  {
+    "question_id": "Q05",
+    "question": "How often must high-value SKUs like alcohol and baby formula be cycle counted?",
+    "expected_doc": "inventory_sop",
+    "expected_section": "Cycle counting"
+  },
+  {
+    "question_id": "Q06",
+    "question": "Which rotation rule applies to perishable stock, and at what point should items be marked down?",
+    "expected_doc": "inventory_sop",
+    "expected_section": "Expiry and FEFO"
+  },
+  {
+    "question_id": "Q07",
+    "question": "A rider is injured in a road accident during a delivery. What steps must the store follow?",
+    "expected_doc": "delivery_incident_sop",
+    "expected_section": "Rider accident or injury"
+  },
+  {
+    "question_id": "Q08",
+    "question": "A customer says their order never arrived. What is the procedure for handling a lost order?",
+    "expected_doc": "delivery_incident_sop",
+    "expected_section": "Lost or never-arrived orders"
+  },
+  {
+    "question_id": "Q09",
+    "question": "The customer is not answering the door. How many contact attempts are required before the order returns to the store?",
+    "expected_doc": "delivery_incident_sop",
+    "expected_section": "Customer unreachable at drop-off"
+  },
+  {
+    "question_id": "Q10",
+    "question": "What must the duty manager verify before the store opens, and where is the sign-off recorded?",
+    "expected_doc": "store_operations_manual",
+    "expected_section": "Opening checklist"
+  },
+  {
+    "question_id": "Q11",
+    "question": "What is the procedure when the store loses power or core systems go down during trading hours?",
+    "expected_doc": "store_operations_manual",
+    "expected_section": "Power or systems outage"
+  },
+  {
+    "question_id": "Q12",
+    "question": "When does a till variance require an incident report to the store lead?",
+    "expected_doc": "store_operations_manual",
+    "expected_section": "Cash handling and till discrepancies"
+  },
+  {
+    "question_id": "Q13",
+    "question": "A customer threatens to report us to the food safety regulator. Which escalation tier handles this and who owns it?",
+    "expected_doc": "customer_complaint_policy",
+    "expected_section": "Escalation tiers"
+  },
+  {
+    "question_id": "Q14",
+    "question": "What compensation applies when a delivery is more than 30 minutes late?",
+    "expected_doc": "customer_complaint_policy",
+    "expected_section": "Compensation matrix"
+  },
+  {
+    "question_id": "Q15",
+    "question": "How quickly must we acknowledge a complaint received in the app during the evening?",
+    "expected_doc": "customer_complaint_policy",
+    "expected_section": "Response time targets"
+  },
+  {
+    "question_id": "Q16",
+    "question": "Who must approve a discount deeper than 30 percent?",
+    "expected_doc": "promotion_policy",
+    "expected_section": "Approval thresholds"
+  },
+  {
+    "question_id": "Q17",
+    "question": "Can a customer apply two promo codes to a single order?",
+    "expected_doc": "promotion_policy",
+    "expected_section": "Stacking and exclusions"
+  },
+  {
+    "question_id": "Q18",
+    "question": "We listed a product at 95 percent off by mistake and the order has not shipped yet. What does policy require?",
+    "expected_doc": "promotion_policy",
+    "expected_section": "Pricing errors"
+  },
+  {
+    "question_id": "Q19",
+    "question": "What was the total GMV last Tuesday, and how did it compare to the previous week?",
+    "expected_doc": null,
+    "must_answer": false
+  },
+  {
+    "question_id": "Q20",
+    "question": "What are the company's plans for an initial public offering this year?",
+    "expected_doc": null,
+    "must_answer": false
+  }
+]

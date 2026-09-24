@@ -145,6 +145,22 @@ INVENTORY_MOVEMENTS_SCHEMA = StructType(
     ]
 )
 
+STORES_SCHEMA = StructType(
+    [
+        StructField("store_id", LongType(), False),
+        StructField("store_code", StringType(), False),
+        StructField("name", StringType(), False),
+        StructField("city", StringType(), False),
+        StructField("latitude", DecimalType(9, 6), False),
+        StructField("longitude", DecimalType(9, 6), False),
+        StructField("service_radius_km", DecimalType(5, 2), False),
+        StructField("opened_at", TimestampType(), False),
+        StructField("is_active", BooleanType(), False),
+        StructField("created_at", TimestampType(), False),
+        StructField("updated_at", TimestampType(), False),
+    ]
+)
+
 BRONZE_METADATA_SCHEMA_PARTS = [
     StructField("_ingested_at", TimestampType(), False),
     StructField("_source_system", StringType(), False),

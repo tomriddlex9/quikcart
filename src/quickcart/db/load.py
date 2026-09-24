@@ -8,7 +8,7 @@ so reruns are deterministic.
 import psycopg
 
 from quickcart.db.fingerprints import canonical_row_fingerprint
-from quickcart.db.loader import copy_rows, truncate_all
+from quickcart.db.loader import ALL_TABLES, copy_rows, sync_identity_sequences, truncate_all
 from quickcart.simulator.generator import ReferenceData
 
 STORE_COLUMNS = (
@@ -86,6 +86,7 @@ def load_reference(cur: psycopg.Cursor, ref: ReferenceData) -> None:
     copy_rows(cur, "product_prices", PRICE_COLUMNS, ref.prices)
     copy_rows(cur, "riders", RIDER_COLUMNS, ref.riders)
     copy_rows(cur, "promotions", PROMOTION_COLUMNS, ref.promotions)
+    sync_identity_sequences(cur, ALL_TABLES)
 
 
 def truncate_transactional(cur: psycopg.Cursor) -> None:
@@ -102,6 +103,7 @@ def load_history(cur: psycopg.Cursor, history) -> None:
     copy_rows(cur, "inventory_movements", MOVEMENT_COLUMNS, history.movements)
     copy_rows(cur, "support_tickets", TICKET_COLUMNS, history.tickets)
     copy_rows(cur, "inventory", INVENTORY_COLUMNS, history.inventory)
+    sync_identity_sequences(cur, TRANSACTIONAL_TABLES)
 
 
 def db_reference_fingerprint(conn: psycopg.Connection) -> str:

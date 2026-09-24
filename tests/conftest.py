@@ -37,3 +37,23 @@ def spark_session():
     spark = build_spark("quickcart-tests", test=True)
     yield spark
     spark.stop()
+
+
+@pytest.fixture(scope="session")
+def pipeline_run(seeded_db, spark_session, tmp_path_factory):
+    """Export → bronze → silver → gold against a tmp data root, once per session."""
+    from datetime import date
+
+    from quickcart.ingestion.export import export_all
+    from quickcart.lakehouse.bronze.load import run_bronze
+    from quickcart.lakehouse.gold.load import run_gold
+    from quickcart.lakehouse.silver.load import run_silver, silver_quality_gate
+
+    root = tmp_path_factory.mktemp("lakehouse")
+    export_all(data_root=root, load_date=date(2026, 9, 23))
+    bronze_counts = run_bronze(spark_session, root)
+    silver_stats = run_silver(spark_session, root)
+    failures = silver_quality_gate(silver_stats)
+    assert failures == [], failures
+    gold_counts = run_gold(spark_session, root)
+    return {"root": root, "bronze": bronze_counts, "silver": silver_stats, "gold": gold_counts}

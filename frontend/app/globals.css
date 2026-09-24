@@ -1,0 +1,110 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #0c0f14;
+  --color-ink-2: #10141c;
+  --color-panel: #131a24;
+  --color-panel-2: #18202c;
+  --color-line: #242e3d;
+  --color-line-soft: #1b2330;
+  --color-paper: #e9e2d2;
+  --color-paper-dim: #c9c2b2;
+  --color-muted: #8b94a3;
+  --color-faint: #5b6575;
+  --color-amber: #f2a93b;
+  --color-amber-dim: #b97f22;
+  --color-teal: #5cc0b0;
+  --color-teal-dim: #3a7f74;
+  --color-red: #e15b64;
+  --color-red-dim: #93414a;
+  --color-green: #62b57c;
+
+  --font-display: var(--font-fraunces), "Georgia", serif;
+  --font-mono: var(--font-plex-mono), "SFMono-Regular", monospace;
+
+  --radius-xs: 3px;
+}
+
+html,
+body {
+  background-color: var(--color-ink);
+  color: var(--color-paper);
+}
+
+body {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--color-amber);
+  color: var(--color-ink);
+}
+
+/* Thin scrollbars that match the console palette. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-line);
+  border-radius: 4px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Hairline panel primitive. */
+.panel {
+  background-color: var(--color-panel);
+  border: 1px solid var(--color-line-soft);
+  border-radius: var(--radius-xs);
+}
+
+.panel-hover {
+  transition: border-color 120ms ease;
+}
+.panel-hover:hover {
+  border-color: var(--color-line);
+}
+
+/* Recharts dark-theme adjustments. */
+.recharts-cartesian-axis-tick text {
+  fill: var(--color-faint);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+.recharts-cartesian-grid line {
+  stroke: var(--color-line-soft);
+}
+.recharts-tooltip-cursor {
+  stroke: var(--color-line);
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+.live-dot {
+  animation: pulse-dot 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-dot {
+    animation: none;
+  }
+  .panel-hover {
+    transition: none;
+  }
+}

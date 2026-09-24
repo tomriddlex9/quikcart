@@ -18,9 +18,10 @@ from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
 
 from quickcart.lakehouse.common import schemas
-from quickcart.lakehouse.common.paths import latest_raw_partition, table_path
+from quickcart.lakehouse.common.paths import latest_raw_partition, table_location
 
 SOURCE_SCHEMAS = {
+    "bronze_stores": schemas.STORES_SCHEMA,
     "bronze_orders": schemas.ORDERS_SCHEMA,
     "bronze_order_items": schemas.ORDER_ITEMS_SCHEMA,
     "bronze_customers": schemas.CUSTOMERS_SCHEMA,
@@ -34,6 +35,7 @@ SOURCE_SCHEMAS = {
 
 # raw export directory per bronze table
 RAW_ENTITY = {
+    "bronze_stores": "stores",
     "bronze_orders": "orders",
     "bronze_order_items": "order_items",
     "bronze_customers": "customers",
@@ -75,12 +77,11 @@ def read_bronze_source(
         F.lit((ingestion_date or date.today()).isoformat()).alias("_ingestion_date"),
     )
 
-
-def write_bronze(df: DataFrame, root: Path | None, table: str) -> Path:
-    """Overwrite (full snapshot) the bronze Delta table. Returns its path."""
-    target = table_path("bronze", table, root)
-    df.write.format("delta").mode("overwrite").save(str(target))
-    return target
+def write_bronze(df: DataFrame, root: Path | None, table: str) -> str:
+    """Overwrite (full snapshot) the bronze Delta table. Returns its location."""
+    location = table_location("bronze", table, root)
+    df.write.format("delta").mode("overwrite").save(location)
+    return location
 
 
 def load_bronze_table(

@@ -1,0 +1,92 @@
+[
+  {
+    "store_id": 1,
+    "city": "FixtureCity",
+    "observed_at": "2026-09-23T12:00",
+    "temperature_c": 28.5,
+    "condition": "CLEAR",
+    "source": "fixture",
+    "_ingested_at": "2026-09-23T12:00:00+00:00"
+  },
+  {
+    "store_id": 2,
+    "city": "FixtureCity",
+    "observed_at": "2026-09-23T12:00",
+    "temperature_c": 28.5,
+    "condition": "RAIN",
+    "source": "fixture",
+    "_ingested_at": "2026-09-23T12:00:00+00:00"
+  },
+  {
+    "store_id": 3,
+    "city": "FixtureCity",
+    "observed_at": "2026-09-23T12:00",
+    "temperature_c": 28.5,
+    "condition": "CLEAR",
+    "source": "fixture",
+    "_ingested_at": "2026-09-23T12:00:00+00:00"
+  },
+  {
+    "store_id": 4,
+    "city": "FixtureCity",
+    "observed_at": "2026-09-23T12:00",
+    "temperature_c": 28.5,
+    "condition": "RAIN",
+    "source": "fixture",
+    "_ingested_at": "2026-09-23T12:00:00+00:00"
+  },
+  {
+    "store_id": 5,
+    "city": "FixtureCity",
+    "observed_at": "2026-09-23T12:00",
+    "temperature_c": 28.5,
+    "condition": "CLEAR",
+    "source": "fixture",
+    "_ingested_at": "2026-09-23T12:00:00+00:00"
+  },
+  {
+    "store_id": 6,
+    "city": "FixtureCity",
+    "observed_at": "2026-09-23T12:00",
+    "temperature_c": 28.5,
+    "condition": "CLEAR",
+    "source": "fixture",
+    "_ingested_at": "2026-09-23T12:00:00+00:00"
+  },
+  {
+    "store_id": 7,
+    "city": "FixtureCity",
+    "observed_at": "2026-09-23T12:00",
+    "temperature_c": 28.5,
+    "condition": "RAIN",
+    "source": "fixture",
+    "_ingested_at": "2026-09-23T12:00:00+00:00"
+  },
+  {
+    "store_id": 8,
+    "city": "FixtureCity",
+    "observed_at": "2026-09-23T12:00",
+    "temperature_c": 28.5,
+    "condition": "CLEAR",
+    "source": "fixture",
+    "_ingested_at": "2026-09-23T12:00:00+00:00"
+  },
+  {
+    "store_id": 9,
+    "city": "FixtureCity",
+    "observed_at": "2026-09-23T12:00",
+    "temperature_c": 28.5,
+    "condition": "CLEAR",
+    "source": "fixture",
+    "_ingested_at": "2026-09-23T12:00:00+00:00"
+  },
+  {
+    "store_id": 10,
+    "city": "FixtureCity",
+    "observed_at": "2026-09-23T12:00",
+    "temperature_c": 28.5,
+    "condition": "RAIN",
+    "source": "fixture",
+    "_ingested_at": "2026-09-23T12:00:00+00:00"
+  }
+]

@@ -23,6 +23,27 @@ spark = [
     "pyspark==4.2.0",
     "delta-spark==4.4.0",
 ]
+streaming = [
+    "kafka-python>=2.0",
+]
+dashboard = [
+    "streamlit>=1.40",
+    "plotly>=5.24",
+    "matplotlib>=3.9",
+]
+ml = [
+    "scikit-learn>=1.5",
+    "xgboost>=2.1",
+    "mlflow==3.16.0",
+]
+ai = [
+    "langgraph>=0.6",
+    "qdrant-client>=1.12",
+    "sentence-transformers>=3.0",
+    "ollama>=0.4",
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+]
 
 [build-system]
 requires = ["hatchling"]

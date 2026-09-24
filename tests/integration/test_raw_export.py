@@ -3,7 +3,6 @@ from datetime import date
 import pytest
 
 from quickcart.ingestion.export import export_all
-from quickcart.lakehouse.common.spark import build_spark
 from quickcart.lakehouse.learning import schemas
 
 
@@ -20,20 +19,18 @@ def test_export_produces_all_sources(seeded_db, tmp_path) -> None:
 
 
 @pytest.mark.integration
-def test_spark_reads_exported_orders_with_matching_count(seeded_db, tmp_path) -> None:
+def test_spark_reads_exported_orders_with_matching_count(
+    seeded_db, spark_session, tmp_path
+) -> None:
     export_all(data_root=tmp_path, load_date=date(2026, 9, 23))
-    spark = build_spark("quickcart-export-test", test=True)
-    try:
-        orders = (
-            spark.read.schema(schemas.ORDERS_SCHEMA)
-            .option("header", True)
-            .option("timestampFormat", "yyyy-MM-dd HH:mm:ss")
-            .csv(str(tmp_path / "raw" / "orders" / "load_date=2026-09-23" / "orders.csv"))
-        )
-        assert orders.count() == len(seeded_db.orders)
-        assert orders.filter("placed_at IS NULL").count() == 0
-    finally:
-        spark.stop()
+    orders = (
+        spark_session.read.schema(schemas.ORDERS_SCHEMA)
+        .option("header", True)
+        .option("timestampFormat", "yyyy-MM-dd HH:mm:ss")
+        .csv(str(tmp_path / "raw" / "orders" / "load_date=2026-09-23" / "orders.csv"))
+    )
+    assert orders.count() == len(seeded_db.orders)
+    assert orders.filter("placed_at IS NULL").count() == 0
 
 
 @pytest.mark.integration

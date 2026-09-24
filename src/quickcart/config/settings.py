@@ -35,6 +35,19 @@ class Settings(BaseSettings):
     # Lakehouse storage backend (`local` now, `s3` arrives in Phase 6)
     storage_backend: str = "local"
 
+    # S3-compatible object storage (Phase 6, SeaweedFS)
+    s3_endpoint: str = "http://127.0.0.1:8333"
+    s3_access_key: str = "quickcart_dev"
+    s3_secret_key: str = "quickcart_dev_secret"
+    s3_bucket: str = "quickcart-lakehouse"
+
+    # Streaming (Phase 7, Redpanda)
+    redpanda_bootstrap_servers: str = "127.0.0.1:9092"
+
+    # Local LLM (Phase 13, Ollama) — model choice is configuration, never hard-coded
+    ollama_base_url: str = "http://127.0.0.1:11434"
+    ollama_model: str = "qwen3:4b"
+
     # Ordered, versioned DDL migration scripts
     migrations_dir: Path = Path("infrastructure/postgres/migrations")
 

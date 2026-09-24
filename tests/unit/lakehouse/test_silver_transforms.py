@@ -35,7 +35,7 @@ def test_valid_rows_pass_and_rule_ids_attach_to_bad_rows(spark_session) -> None:
             (4, 102, 10, "DELIVERED", "-10.00", "2026-03-01 10:00:00", "2026-03-01 11:00:00"),
         ],
     )
-    clean, quarantine = transforms.clean_orders(df)
+    clean, quarantine, _summary = transforms.clean_orders(df)
     assert clean.count() == 1
     bad = {row["order_id"]: row for row in quarantine.collect()}
     assert set(bad) == {2, 3, 4}
@@ -55,7 +55,7 @@ def test_duplicate_business_keys_keep_latest(spark_session) -> None:
             (1, 100, 10, "REFUNDED", "500.00", "2026-03-01 10:00:00", "2026-03-01 12:00:00"),
         ],
     )
-    clean, quarantine = transforms.clean_orders(df)
+    clean, quarantine, _summary = transforms.clean_orders(df)
     assert quarantine.count() == 0
     rows = clean.collect()
     assert len(rows) == 1
@@ -78,7 +78,7 @@ def test_order_item_quantity_rule(spark_session) -> None:
         F.col("unit_price").cast("decimal(12,2)").alias("unit_price"),
         F.to_timestamp("created_at").alias("created_at"),
     )
-    clean, quarantine = transforms.clean_order_items(items)
+    clean, quarantine, _summary = transforms.clean_order_items(items)
     assert [r["order_item_id"] for r in clean.collect()] == [2]
     bad = quarantine.collect()
     assert len(bad) == 1 and "DQ-ITEM-001" in bad[0]["_error_codes"]
@@ -105,7 +105,7 @@ def test_delivery_timestamp_ordering_rule(spark_session) -> None:
         F.to_timestamp("created_at").alias("created_at"),
         F.to_timestamp("updated_at").alias("updated_at"),
     )
-    clean, quarantine = transforms.clean_deliveries(deliveries)
+    clean, quarantine, _summary = transforms.clean_deliveries(deliveries)
     assert clean.count() == 0
     assert "DQ-DEL-001" in quarantine.collect()[0]["_error_codes"]
 
@@ -116,7 +116,7 @@ def test_inventory_and_movement_rules(spark_session) -> None:
         "store_id: bigint, product_id: bigint, on_hand_qty: int, reserved_qty: int, "
         "reorder_point: int, updated_at: string",
     ).withColumn("updated_at", F.to_timestamp("updated_at"))
-    clean, quarantine = transforms.clean_inventory(inventory)
+    clean, quarantine, _summary = transforms.clean_inventory(inventory)
     assert [r["product_id"] for r in clean.collect()] == [5]
     assert "DQ-INV-001" in quarantine.collect()[0]["_error_codes"]
 
@@ -132,6 +132,6 @@ def test_inventory_and_movement_rules(spark_session) -> None:
         F.to_timestamp("occurred_at").alias("occurred_at"),
         F.to_timestamp("created_at").alias("created_at"),
     )
-    m_clean, m_quarantine = transforms.clean_inventory_movements(movements)
+    m_clean, m_quarantine, _m_summary = transforms.clean_inventory_movements(movements)
     assert [r["movement_id"] for r in m_clean.collect()] == [1]
     assert "DQ-MOV-001" in m_quarantine.collect()[0]["_error_codes"]

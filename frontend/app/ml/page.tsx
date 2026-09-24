@@ -11,7 +11,7 @@ export default function MlPage() {
     <>
       <PageHeader
         title="ML platform"
-        description="The Phase 11 models serving the platform: live delivery-delay and demand predictions read straight from the Gold write-back tables, the anomaly stream the detectors emit, and honest documentation for every model — target, features, split, baselines and where predictions land."
+        description="Delivery-delay and demand predictions read from the Gold write-back tables, the anomaly stream, and a documented card per model."
       />
       <MlConsole />
     </>

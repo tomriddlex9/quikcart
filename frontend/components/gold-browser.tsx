@@ -1,10 +1,19 @@
 "use client";
 
+import { ChevronRight } from "lucide-react";
 import { ApiBanner } from "@/components/api-banner";
 import { Pill, StatusDot } from "@/components/pill";
-import { EmptyState, Skeleton } from "@/components/states";
+import { Skeleton } from "@/components/states";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DEMO_SYSTEM_STATUS } from "@/lib/demo";
-import { GOLD_MARTS } from "@/lib/gold-marts";
+import { GOLD_MARTS, type GoldMart } from "@/lib/gold-marts";
 import { useApiData } from "@/lib/use-api";
 import type { SystemStatus } from "@/lib/types";
 
@@ -12,103 +21,95 @@ function tablePresence(value: unknown): { label: string; state: "present" | "abs
   if (typeof value === "boolean")
     return { label: value ? "on disk" : "not built", state: value ? "present" : "absent" };
   if (typeof value === "number")
-    return { label: value > 0 ? `${value} rows` : "empty", state: value > 0 ? "present" : "absent" };
+    return {
+      label: value > 0 ? `${value} rows` : "empty",
+      state: value > 0 ? "present" : "absent",
+    };
   return { label: "not probed", state: "unknown" };
 }
 
-/** Bronze → Silver → Gold medallion diagram, drawn in the console palette. */
-function MedallionDiagram() {
-  const layers = [
-    {
-      name: "BRONZE",
-      sub: "raw payloads + ingestion metadata",
-      fill: "#1a1410",
-      stroke: "#5c4632",
-      text: "#c99a6b",
-      x: 12,
-    },
-    {
-      name: "SILVER",
-      sub: "validated, conformed entities",
-      fill: "#14171d",
-      stroke: "#3d4653",
-      text: "#9aa5b4",
-      x: 262,
-    },
-    {
-      name: "GOLD",
-      sub: "analysis-ready marts",
-      fill: "#191510",
-      stroke: "#8a6a2a",
-      text: "#f2a93b",
-      x: 512,
-    },
-  ];
+const LAYERS = [
+  { name: "Bronze", sub: "raw payloads + ingestion metadata" },
+  { name: "Silver", sub: "validated, conformed entities" },
+  { name: "Gold", sub: "analysis-ready marts" },
+];
+
+function Medallion() {
   return (
-    <svg
-      viewBox="0 0 760 118"
-      className="w-full"
-      role="img"
-      aria-label="Medallion architecture: Bronze to Silver to Gold"
-    >
-      {layers.map((l, i) => (
-        <g key={l.name}>
-          <rect
-            x={l.x}
-            y={22}
-            width={236}
-            height={74}
-            rx={3}
-            fill={l.fill}
-            stroke={l.stroke}
-            strokeWidth={1}
-          />
-          <text
-            x={l.x + 14}
-            y={48}
-            fill={l.text}
-            fontSize={13}
-            fontFamily="var(--font-mono)"
-            letterSpacing={2}
-          >
-            {l.name}
-          </text>
-          <text
-            x={l.x + 14}
-            y={68}
-            fill="#8b94a3"
-            fontSize={10}
-            fontFamily="var(--font-mono)"
-          >
-            {l.sub}
-          </text>
-          {i < layers.length - 1 ? (
-            <g>
-              <line
-                x1={l.x + 240}
-                y1={59}
-                x2={l.x + 244}
-                y2={59}
-                stroke="#5b6575"
-                strokeWidth={1}
-              />
-              <path
-                d={`M ${l.x + 244} 55 L ${l.x + 244} 63 M ${l.x + 241} 60 L ${l.x + 246} 60`}
-                stroke="#5b6575"
-                strokeWidth={1}
-              />
-              <path
-                d={`M ${l.x + 246} 59 l -5 -3.5 v 7 z`}
-                fill="#5b6575"
-              />
-            </g>
+    <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
+      {LAYERS.map((l, i) => (
+        <div key={l.name} className="flex flex-1 items-center gap-2">
+          <div className="flex-1 rounded-lg border border-border bg-muted/40 px-3 py-2.5">
+            <div className="font-mono text-xs tracking-widest">{l.name.toUpperCase()}</div>
+            <div className="mt-0.5 text-xs text-muted-foreground">{l.sub}</div>
+          </div>
+          {i < LAYERS.length - 1 ? (
+            <ChevronRight
+              className="size-4 shrink-0 rotate-90 text-muted-foreground sm:rotate-0"
+              strokeWidth={1.75}
+              aria-hidden
+            />
           ) : null}
-        </g>
+        </div>
       ))}
-      <text x={12} y={112} fill="#5b6575" fontSize={9.5} fontFamily="var(--font-mono)">
-        bad rows never disappear — they are quarantined with structured error codes
-      </text>
-    </svg>
+    </div>
+  );
+}
+
+function MartRow({ mart, presenceValue }: { mart: GoldMart; presenceValue: unknown }) {
+  const presence = tablePresence(presenceValue);
+  const tone =
+    presence.state === "present" ? "teal" : presence.state === "absent" ? "neutral" : "amber";
+  return (
+    <AccordionItem value={mart.name}>
+      <AccordionTrigger className="gap-3 hover:no-underline">
+        <span className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+          <code className="text-sm">{mart.name}</code>
+          <Pill tone={mart.family === "ml" ? "amber" : "neutral"}>
+            {mart.family === "ml" ? "ML write-back" : "pipeline"}
+          </Pill>
+          <Pill tone={tone}>
+            <StatusDot tone={tone} />
+            {presence.label}
+          </Pill>
+        </span>
+      </AccordionTrigger>
+      <AccordionContent>
+        <dl className="grid gap-2 text-sm sm:grid-cols-[8rem_1fr]">
+          <dt className="text-muted-foreground">grain</dt>
+          <dd>{mart.grain}</dd>
+          <dt className="text-muted-foreground">key columns</dt>
+          <dd className="flex flex-wrap gap-1">
+            {mart.keyColumns.map((c) => (
+              <code key={c} className="rounded bg-muted px-1.5 py-0.5 text-xs">
+                {c}
+              </code>
+            ))}
+          </dd>
+          <dt className="text-muted-foreground">columns</dt>
+          <dd className="text-muted-foreground">{mart.columnsNote}</dd>
+          <dt className="text-muted-foreground">how it&apos;s built</dt>
+          <dd className="text-muted-foreground">{mart.howBuilt}</dd>
+          <dt className="text-muted-foreground">built by</dt>
+          <dd className="text-muted-foreground">{mart.builtBy}</dd>
+          <dt className="text-muted-foreground">consumed by</dt>
+          <dd className="flex flex-wrap gap-x-3 gap-y-0.5">
+            {mart.consumers.map((c) => (
+              <code key={c} className="text-xs text-muted-foreground">
+                {c}
+              </code>
+            ))}
+          </dd>
+        </dl>
+        {presence.state === "absent" ? (
+          <p className="mt-3 text-xs text-muted-foreground">
+            {mart.family === "ml"
+              ? "Not built yet — run the matching Phase 11 model; it overwrites this table per run."
+              : "Not built yet — run the Silver→Gold job (make gold, or the Airflow DAG)."}
+          </p>
+        ) : null}
+      </AccordionContent>
+    </AccordionItem>
   );
 }
 
@@ -117,109 +118,72 @@ export function GoldBrowser() {
   const demo = status.mode !== "live";
   const tables = status.data?.data_root_tables ?? {};
 
+  const pipeline = GOLD_MARTS.filter((m) => m.family === "pipeline");
+  const ml = GOLD_MARTS.filter((m) => m.family === "ml");
+
+  if (status.data === null) {
+    return (
+      <div className="space-y-3">
+        <Skeleton className="h-[92px] rounded-xl" />
+        <Skeleton className="h-[320px] rounded-xl" />
+      </div>
+    );
+  }
+
   return (
     <>
       {demo ? <ApiBanner mode={status.mode} error={status.error} /> : null}
 
-      {status.data === null ? (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-[260px] rounded-xs border border-line-soft" />
-          ))}
-        </div>
-      ) : (
-        <div className="space-y-6">
-          <section className="panel px-4 py-4">
-            <h2 className="mb-3 text-[12px] font-medium text-paper-dim">Medallion architecture</h2>
-            <MedallionDiagram />
-          </section>
+      <div className="space-y-4">
+        <Card size="sm">
+          <CardHeader>
+            <CardTitle className="text-sm">Medallion layers</CardTitle>
+            <CardDescription className="text-xs">
+              Bad rows are quarantined with structured error codes, never dropped.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Medallion />
+          </CardContent>
+        </Card>
 
-          <section>
-            <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-              <h2 className="text-[11px] font-medium tracking-wide text-faint">gold marts</h2>
-              <span className="text-[10px] text-faint">
-                presence probed by the API at <code>data/gold/*</code> · polled every 30s
-              </span>
-            </div>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              {GOLD_MARTS.map((mart) => {
-                const presence = tablePresence(tables[mart.name]);
-                const tone =
-                  presence.state === "present" ? "teal" : presence.state === "absent" ? "neutral" : "amber";
-                return (
-                  <article key={mart.name} className="panel px-4 py-4">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <code className="text-[12.5px] text-paper">{mart.name}</code>
-                      <Pill tone={mart.family === "ml" ? "amber" : "neutral"}>
-                        {mart.family === "ml" ? "ML write-back" : "pipeline mart"}
-                      </Pill>
-                      <Pill tone={tone}>
-                        <StatusDot tone={presence.state === "present" ? "green" : presence.state === "absent" ? "neutral" : "amber"} />
-                        {presence.label}
-                      </Pill>
-                    </div>
+        <Card size="sm">
+          <CardHeader>
+            <CardTitle className="text-sm">Gold marts</CardTitle>
+            <CardDescription className="text-xs">
+              Presence probed at <code>data/gold/*</code> every 30s. Expand a table for its grain
+              and build path.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Tabs defaultValue="pipeline" className="gap-3">
+              <TabsList>
+                <TabsTrigger value="pipeline">Pipeline ({pipeline.length})</TabsTrigger>
+                <TabsTrigger value="ml">ML write-back ({ml.length})</TabsTrigger>
+              </TabsList>
+              <TabsContent value="pipeline">
+                <Accordion className="border-t border-border">
+                  {pipeline.map((mart) => (
+                    <MartRow key={mart.name} mart={mart} presenceValue={tables[mart.name]} />
+                  ))}
+                </Accordion>
+              </TabsContent>
+              <TabsContent value="ml">
+                <Accordion className="border-t border-border">
+                  {ml.map((mart) => (
+                    <MartRow key={mart.name} mart={mart} presenceValue={tables[mart.name]} />
+                  ))}
+                </Accordion>
+              </TabsContent>
+            </Tabs>
+          </CardContent>
+        </Card>
 
-                    <dl className="mt-3 space-y-2 text-[11.5px] leading-relaxed">
-                      <div className="flex gap-2">
-                        <dt className="w-24 shrink-0 text-faint">grain</dt>
-                        <dd className="text-paper-dim">{mart.grain}</dd>
-                      </div>
-                      <div className="flex gap-2">
-                        <dt className="w-24 shrink-0 text-faint">key columns</dt>
-                        <dd className="flex flex-wrap gap-1">
-                          {mart.keyColumns.map((c) => (
-                            <code
-                              key={c}
-                              className="border border-line-soft bg-ink px-1.5 py-0.5 text-[10px] text-teal"
-                            >
-                              {c}
-                            </code>
-                          ))}
-                        </dd>
-                      </div>
-                      <div className="flex gap-2">
-                        <dt className="w-24 shrink-0 text-faint">columns</dt>
-                        <dd className="text-muted">{mart.columnsNote}</dd>
-                      </div>
-                      <div className="flex gap-2">
-                        <dt className="w-24 shrink-0 text-faint">how it's built</dt>
-                        <dd className="text-muted">{mart.howBuilt}</dd>
-                      </div>
-                      <div className="flex gap-2">
-                        <dt className="w-24 shrink-0 text-faint">built by</dt>
-                        <dd className="text-muted">{mart.builtBy}</dd>
-                      </div>
-                      <div className="flex gap-2">
-                        <dt className="w-24 shrink-0 text-faint">consumed by</dt>
-                        <dd className="flex flex-wrap gap-x-3 gap-y-0.5 text-muted">
-                          {mart.consumers.map((c) => (
-                            <code key={c} className="text-[10.5px] text-paper-dim">
-                              {c}
-                            </code>
-                          ))}
-                        </dd>
-                      </div>
-                    </dl>
-
-                    {presence.state === "absent" ? (
-                      <p className="mt-3 border-t border-line-soft pt-2.5 text-[10.5px] leading-relaxed text-faint">
-                        {mart.family === "ml"
-                          ? "not built yet — run the corresponding Phase 11 model (it overwrites this table on every run)."
-                          : "not built yet — run the Silver→Gold batch job (make gold, or the Airflow DAG in Phase 9)."}
-                      </p>
-                    ) : null}
-                  </article>
-                );
-              })}
-            </div>
-          </section>
-
-          <EmptyState
-            title="Where to inspect the rows themselves"
-            hint="The Streamlit dashboard's Pipeline page reads these same Gold tables through the API's readers — open it via the /streamlit tab, or query data/gold/* directly with Spark SQL (delta format)."
-          />
-        </div>
-      )}
+        <p className="text-xs text-muted-foreground">
+          To read the rows themselves, use the Streamlit Pipeline page or query{" "}
+          <code>data/gold/*</code> directly with Spark SQL.
+        </p>
+      </div>
     </>
   );
 }

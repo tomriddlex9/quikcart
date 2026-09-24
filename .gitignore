@@ -10,7 +10,8 @@ __pycache__/
 .env
 
 # Generated data (local lakehouse, exports, checkpoints, artifacts)
-data/
+# Anchored to the repo root so the /data console route stays tracked.
+/data/
 *.parquet
 *.parquet.crc
 

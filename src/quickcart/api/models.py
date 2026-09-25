@@ -8,7 +8,7 @@ Boundary between schema and business validation:
 """
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -17,6 +17,8 @@ MAX_RESTOCK_QUANTITY = 500
 ProposalType = Literal["RESTOCK", "INCIDENT", "OPS_NOTIFICATION"]
 ProposalStatus = Literal["PENDING", "APPROVED", "REJECTED", "EXECUTED", "FAILED"]
 ValidationStatus = Literal["PENDING", "VALID", "INVALID"]
+SqlSource = Literal["postgres", "lakehouse"]
+CatalogLayer = Literal["raw", "bronze", "silver", "gold"]
 
 
 class ChatRequest(BaseModel):
@@ -65,6 +67,89 @@ class ApproveRequest(BaseModel):
 class RejectRequest(BaseModel):
     approver: str = Field(min_length=1)
     reason: str | None = None
+
+
+class SqlExecuteRequest(BaseModel):
+    """One read-only statement for the SQL console.
+
+    ``limit`` is clamped down to the hard row cap by the guard rather than
+    rejected, so a console asking for more rows gets the cap, not a 422.
+    """
+
+    source: SqlSource
+    sql: str = Field(min_length=1)
+    limit: int | None = Field(default=None, ge=1)
+
+
+class SqlExecuteResponse(BaseModel):
+    source: SqlSource
+    columns: list[str]
+    rows: list[dict[str, Any]]
+    row_count: int
+    truncated: bool
+    elapsed_ms: float
+
+
+class SqlGenerateRequest(BaseModel):
+    question: str = Field(min_length=1)
+    source: SqlSource
+
+
+class SqlGenerateResponse(BaseModel):
+    """A candidate statement only — the API never executes generated SQL."""
+
+    source: SqlSource
+    sql: str
+    model: str | None
+    valid: bool
+    degraded: bool
+    notes: list[str] = Field(default_factory=list)
+
+
+class CatalogColumn(BaseModel):
+    name: str
+    type: str
+    nullable: bool = True
+
+
+class CatalogTable(BaseModel):
+    layer: CatalogLayer
+    name: str
+    columns: list[CatalogColumn] = Field(default_factory=list)
+    location: str | None = None
+
+
+class CatalogTablesResponse(BaseModel):
+    tables: list[CatalogTable]
+    notes: list[str] = Field(default_factory=list)
+
+
+class CatalogPreviewResponse(BaseModel):
+    layer: CatalogLayer
+    name: str
+    columns: list[str]
+    rows: list[dict[str, Any]]
+    row_count: int
+    truncated: bool
+    elapsed_ms: float
+    source: Literal["postgres", "lakehouse"]
+
+
+class ErTable(BaseModel):
+    name: str
+    columns: list[CatalogColumn] = Field(default_factory=list)
+
+
+class ErEdge(BaseModel):
+    from_table: str
+    from_column: str
+    to_table: str
+    to_column: str
+
+
+class ErResponse(BaseModel):
+    tables: list[ErTable]
+    edges: list[ErEdge]
 
 
 class AuditEntry(BaseModel):

@@ -32,6 +32,8 @@ CDC_TOPICS = {
     "quickcart.public.orders": "bronze_orders_cdc",
     "quickcart.public.inventory": "bronze_inventory_cdc",
     "quickcart.public.payments": "bronze_payments_cdc",
+    "quickcart.public.order_items": "bronze_order_items_cdc",
+    "quickcart.public.deliveries": "bronze_deliveries_cdc",
 }
 
 SOURCE_SCHEMA = StructType(

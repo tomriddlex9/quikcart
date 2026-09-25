@@ -1,4 +1,5 @@
 import type {
+  ActivityLogEntry,
   AnomalyRow,
   DemandForecastRow,
   DeliveryPrediction,
@@ -231,3 +232,80 @@ export const DEMO_SYSTEM_STATUS: SystemStatus = {
     gold_product_performance: false,
   },
 };
+
+// ---------------------------------------------------------------------------
+// Home command center — illustrative figures with no backend metric yet.
+// Surfaced as "demo" values everywhere they render, never claimed as live.
+// ---------------------------------------------------------------------------
+
+/** Open support tickets — illustrative; no ticketing system is wired up yet. */
+export const DEMO_OPEN_TICKETS = 14;
+
+/** Shown in the KPI wall when the live stream has never answered. */
+export const DEMO_ACTIVE_DELIVERIES = 112;
+
+/** Shown in the KPI wall when the live stream has never answered. */
+export const DEMO_PAYMENT_FAILURE_RATE = 0.032;
+
+/** Forecast MAPE (mean absolute % error) for the daily demand model — illustrative. */
+export const DEMO_FORECAST_MAPE = 0.086;
+
+/** Fallback activity-log entries shown when live/pipeline/proposal/anomaly feeds are all offline. */
+export const DEMO_ACTIVITY_LOG: ActivityLogEntry[] = [
+  {
+    id: "demo-1",
+    ts: "2026-09-22T18:42:11Z",
+    level: "info",
+    source: "live",
+    message: "orders_1m=38 gmv_15m=₹4.9L active_deliveries=112",
+  },
+  {
+    id: "demo-2",
+    ts: "2026-09-22T18:41:00Z",
+    level: "warn",
+    source: "anomaly",
+    message: "PAYMENT_FAILURE_SPIKE store=4 observed=11.8% expected=3.2% severity=HIGH",
+  },
+  {
+    id: "demo-3",
+    ts: "2026-09-22T18:40:19Z",
+    level: "info",
+    source: "pipeline",
+    message: "gold_refresh rows_out=48213 lag=42s",
+  },
+  {
+    id: "demo-4",
+    ts: "2026-09-22T18:39:02Z",
+    level: "info",
+    source: "proposal",
+    message: "#101 RESTOCK store=3 sku=SKU-01042 status=PENDING",
+  },
+  {
+    id: "demo-5",
+    ts: "2026-09-22T18:37:44Z",
+    level: "info",
+    source: "pipeline",
+    message: "cdc_silver rows_in=1204 rows_out=1204 lag=6s",
+  },
+  {
+    id: "demo-6",
+    ts: "2026-09-22T18:35:30Z",
+    level: "warn",
+    source: "anomaly",
+    message: "CANCELLATION_SPIKE store=8 observed=9.4% expected=4.8% severity=MEDIUM",
+  },
+  {
+    id: "demo-7",
+    ts: "2026-09-22T18:30:44Z",
+    level: "info",
+    source: "proposal",
+    message: "#102 INCIDENT store=4 status=APPROVED by=ops.demo",
+  },
+  {
+    id: "demo-8",
+    ts: "2026-09-22T18:28:00Z",
+    level: "info",
+    source: "live",
+    message: "orders_1m=34 gmv_15m=₹4.6L active_deliveries=104",
+  },
+];

@@ -3,6 +3,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { X } from "lucide-react";
 import { Pill } from "@/components/pill";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import {
   EDGE_KIND_META,
   JOURNEY_BADGE_EDGE,
@@ -66,7 +75,7 @@ const LANE_BY_EDGE: Map<string, JourneyLane> = new Map(
 );
 
 function laneDotClass(state: LaneState): string {
-  return state === "flowing" ? "bg-green" : state === "demo" ? "bg-amber" : "bg-faint";
+  return state === "flowing" ? "bg-chart-2" : state === "demo" ? "bg-chart-3" : "bg-muted-foreground";
 }
 
 function laneWord(state: LaneState): string {
@@ -118,9 +127,9 @@ export function SystemMap({ journey = null }: { journey?: JourneyState | null })
   }
 
   return (
-    <div className="grid grid-cols-1 gap-4 xl:grid-cols-4">
+    <div className="grid grid-cols-1 gap-3 xl:grid-cols-4">
       <div className="xl:col-span-3">
-        <div className="panel overflow-x-auto">
+        <Card size="sm" className="overflow-x-auto py-0">
           <div
             className="relative"
             style={{ width: MAP_W, height: MAP_H }}
@@ -131,7 +140,7 @@ export function SystemMap({ journey = null }: { journey?: JourneyState | null })
             {LAYER_COLUMNS.map((c) => (
               <div
                 key={c.label}
-                className="absolute -translate-x-1/2 text-[10px] tracking-[0.18em] text-faint"
+                className="absolute -translate-x-1/2 text-[10px] tracking-[0.18em] text-muted-foreground"
                 style={{ left: c.x, top: 8 }}
               >
                 {c.label}
@@ -172,8 +181,7 @@ export function SystemMap({ journey = null }: { journey?: JourneyState | null })
                 const lane = journey ? LANE_BY_EDGE.get(e.id) : undefined;
                 const laneState = journey && lane ? journey[lane] : undefined;
                 const showDot =
-                  laneState === "flowing" &&
-                  JOURNEY_BADGE_EDGE[lane ?? "batch"] === e.id;
+                  laneState === "flowing" && JOURNEY_BADGE_EDGE[lane ?? "batch"] === e.id;
                 return (
                   <g key={e.id} opacity={edgeOpacity(e)} style={{ transition: "opacity 150ms ease" }}>
                     <path
@@ -222,12 +230,12 @@ export function SystemMap({ journey = null }: { journey?: JourneyState | null })
                       className="pointer-events-none absolute z-10 -translate-x-1/2"
                       style={{ left: pos.x, top: pos.y + 10 }}
                     >
-                      <span className="inline-flex items-center gap-1.5 border border-line bg-ink-2/95 px-2 py-0.5 text-[9.5px] text-muted">
-                        <span className={`h-1.5 w-1.5 rounded-full ${laneDotClass(state)}`} />
+                      <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-popover/95 px-2 py-0.5 text-[10px]">
+                        <span className={`size-1.5 rounded-full ${laneDotClass(state)}`} />
                         <span style={{ color: JOURNEY_LANE_META[lane].color }}>
                           {JOURNEY_LANE_META[lane].label}
                         </span>
-                        <span className="text-faint">{laneWord(state)}</span>
+                        <span className="text-muted-foreground">{laneWord(state)}</span>
                       </span>
                     </div>
                   );
@@ -242,26 +250,26 @@ export function SystemMap({ journey = null }: { journey?: JourneyState | null })
                 onMouseEnter={() => setHoverId(n.id)}
                 onMouseLeave={() => setHoverId(null)}
                 aria-pressed={selectedId === n.id}
-                className={`absolute -translate-x-1/2 -translate-y-1/2 border px-2.5 text-left transition-opacity ${
+                className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-lg border px-2.5 text-left transition-opacity ${
                   selectedId === n.id
-                    ? "border-amber bg-panel-2"
-                    : "border-line bg-panel hover:border-line hover:bg-panel-2"
+                    ? "border-foreground/40 bg-secondary"
+                    : "border-border bg-card hover:bg-secondary/60"
                 } ${nodeDim(n) ? "opacity-25" : "opacity-100"}`}
                 style={{ left: n.x, top: n.y, width: n.w, height: n.h }}
               >
                 <div className="flex h-full flex-col justify-center gap-0.5">
-                  <div className="truncate text-[11.5px] font-medium leading-tight text-paper">
-                    {n.label}
+                  <div className="truncate text-xs font-medium leading-tight">{n.label}</div>
+                  <div className="truncate text-[10px] leading-tight text-muted-foreground">
+                    {n.sub}
                   </div>
-                  <div className="truncate text-[9.5px] leading-tight text-faint">{n.sub}</div>
                 </div>
               </button>
             ))}
           </div>
-        </div>
+        </Card>
 
-        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[10.5px] text-muted">
-          <span className="text-faint">edge type</span>
+        <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-muted-foreground">
+          <span>edge type</span>
           {(Object.keys(EDGE_KIND_META) as EdgeKind[]).map((kind) => (
             <span key={kind} className="inline-flex items-center gap-1.5">
               <span
@@ -271,83 +279,83 @@ export function SystemMap({ journey = null }: { journey?: JourneyState | null })
               {EDGE_KIND_META[kind].label}
             </span>
           ))}
-          <span className="ml-auto text-faint">hover to trace · click to pin details</span>
+          <span className="ml-auto">hover to trace · click to pin</span>
         </div>
       </div>
 
-      {/* Detail panel */}
       <div className="xl:col-span-1">
         {selected ? (
-          <div className="panel px-4 py-4">
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <h2 className="font-display text-[17px] font-semibold leading-tight text-paper">
-                  {selected.label}
-                </h2>
-                <div className="mt-0.5 text-[11px] text-faint">{selected.sub}</div>
+          <Card size="sm">
+            <CardHeader>
+              <CardTitle className="text-sm">{selected.label}</CardTitle>
+              <CardDescription className="text-xs">{selected.sub}</CardDescription>
+              <CardAction>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={() => setSelectedId(null)}
+                  aria-label="Close details"
+                >
+                  <X strokeWidth={1.75} />
+                </Button>
+              </CardAction>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-wrap gap-1.5">
+                <Pill tone="amber">{selected.phaseLabel}</Pill>
+                <Pill>{selected.layer}</Pill>
               </div>
-              <button
-                onClick={() => setSelectedId(null)}
-                aria-label="Close details"
-                className="rounded-xs border border-line p-1 text-muted hover:text-paper"
-              >
-                <X className="h-3.5 w-3.5" strokeWidth={1.75} />
-              </button>
-            </div>
 
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              <Pill tone="amber">{selected.phaseLabel}</Pill>
-              <Pill>{selected.layer}</Pill>
-            </div>
+              <p className="mt-3 text-sm text-muted-foreground">{selected.role}</p>
 
-            <p className="mt-3 text-[12px] leading-relaxed text-paper-dim">{selected.role}</p>
+              <div className="mt-4 border-t border-border pt-3">
+                <div className="mb-1.5 text-xs text-muted-foreground">key facts</div>
+                <ul className="space-y-1.5 text-xs text-muted-foreground">
+                  {selected.facts.map((f, i) => (
+                    <li key={i}>· {f}</li>
+                  ))}
+                </ul>
+              </div>
 
-            <div className="mt-4 border-t border-line-soft pt-3">
-              <div className="mb-1.5 text-[10.5px] tracking-wide text-faint">key facts</div>
-              <ul className="space-y-1.5">
-                {selected.facts.map((f, i) => (
-                  <li key={i} className="text-[11.5px] leading-relaxed text-muted">
-                    · {f}
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            <div className="mt-4 border-t border-line-soft pt-3">
-              <div className="mb-1.5 text-[10.5px] tracking-wide text-faint">connections</div>
-              <ul className="space-y-1.5 text-[11.5px]">
-                {MAP_EDGES.filter((e) => e.from === selected.id || e.to === selected.id).map((e) => {
-                  const otherId = e.from === selected.id ? e.to : e.from;
-                  const other = nodeById.get(otherId);
-                  const dir = e.from === selected.id ? "→" : "←";
-                  return (
-                    <li key={e.id} className="flex items-center gap-2 text-muted">
-                      <span
-                        className="inline-block h-1.5 w-1.5 rounded-full"
-                        style={{ backgroundColor: EDGE_KIND_META[e.kind].color }}
-                      />
-                      <span className="text-paper-dim">{dir}</span>
-                      <span>{other?.label ?? otherId}</span>
-                      <span className="text-faint">· {e.label}</span>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          </div>
+              <div className="mt-4 border-t border-border pt-3">
+                <div className="mb-1.5 text-xs text-muted-foreground">connections</div>
+                <ul className="space-y-1.5 text-xs">
+                  {MAP_EDGES.filter((e) => e.from === selected.id || e.to === selected.id).map(
+                    (e) => {
+                      const otherId = e.from === selected.id ? e.to : e.from;
+                      const other = nodeById.get(otherId);
+                      const dir = e.from === selected.id ? "→" : "←";
+                      return (
+                        <li key={e.id} className="flex items-center gap-2 text-muted-foreground">
+                          <span
+                            className="inline-block size-1.5 rounded-full"
+                            style={{ backgroundColor: EDGE_KIND_META[e.kind].color }}
+                          />
+                          <span className="text-foreground">{dir}</span>
+                          <span>{other?.label ?? otherId}</span>
+                          <span>· {e.label}</span>
+                        </li>
+                      );
+                    },
+                  )}
+                </ul>
+              </div>
+            </CardContent>
+          </Card>
         ) : (
-          <div className="panel px-4 py-6 text-[12px] leading-relaxed text-muted">
-            <span className="font-display text-[15px] text-paper-dim">How to read this map</span>
-            <p className="mt-2">
-              Data enters from simulated operations on the left, is captured and streamed through
-              the middle, lands in the Delta medallion, and is served to ML, RAG, the agent and
-              finally the UIs on the right.
-            </p>
-            <p className="mt-2 text-faint">
-              Hover any node to trace its connections; click to pin its role, phase and key facts
-              here.
-            </p>
-          </div>
+          <Card size="sm">
+            <CardHeader>
+              <CardTitle className="text-sm">How to read this map</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 text-sm text-muted-foreground">
+              <p>
+                Data enters from simulated operations on the left, is captured and streamed through
+                the middle, lands in the Delta medallion, and is served to ML, RAG, the agent and
+                the UIs on the right.
+              </p>
+              <p>Hover a node to trace its connections; click to pin its details here.</p>
+            </CardContent>
+          </Card>
         )}
       </div>
     </div>

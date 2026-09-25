@@ -1,0 +1,23 @@
+# EC2 demo overrides. Keep the base compose file local-first; only the
+# short-lived demo host exposes the ports needed by the public showcase.
+services:
+  postgres:
+    ports: !override
+      - "0.0.0.0:${POSTGRES_PORT:-5432}:5432"
+    mem_limit: 768m
+
+  redpanda:
+    mem_limit: 768m
+
+  redpanda-console:
+    mem_limit: 256m
+
+  debezium:
+    environment:
+      KAFKA_HEAP_OPTS: "-Xmx384m"
+    mem_limit: 512m
+
+  qdrant:
+    ports: !override
+      - "0.0.0.0:6333:6333"
+    mem_limit: 512m

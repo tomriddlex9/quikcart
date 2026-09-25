@@ -8,7 +8,7 @@
 export const API_BASE: string =
   process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
 
-export type ApiMode = "live" | "demo" | "offline";
+export type ApiMode = "live" | "stale" | "demo" | "offline";
 
 export interface ApiState<T> {
   mode: ApiMode;
@@ -17,7 +17,7 @@ export interface ApiState<T> {
   lastUpdated: Date | null;
 }
 
-const DEFAULT_TIMEOUT_MS = 5000;
+const DEFAULT_TIMEOUT_MS = 20_000;
 
 async function fetchWithTimeout(
   url: string,

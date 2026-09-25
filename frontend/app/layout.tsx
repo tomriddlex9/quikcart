@@ -1,35 +1,38 @@
 import type { Metadata } from "next";
-import { Fraunces, IBM_Plex_Mono } from "next/font/google";
-import "./globals.css";
+import { GeistSans } from "geist/font/sans";
+import { GeistMono } from "geist/font/mono";
+import { Toaster } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppShell } from "@/components/app-shell";
-
-const fraunces = Fraunces({
-  subsets: ["latin"],
-  variable: "--font-fraunces",
-  axes: ["opsz"],
-});
-
-const plexMono = IBM_Plex_Mono({
-  subsets: ["latin"],
-  weight: ["400", "500", "600"],
-  variable: "--font-plex-mono",
-});
+import { ThemeProvider } from "@/components/theme-provider";
+import { PrefsProvider } from "@/lib/prefs";
+import "./globals.css";
 
 export const metadata: Metadata = {
   title: {
-    default: "QuickCart Console",
-    template: "%s — QuickCart Console",
+    default: "QuickCart",
+    template: "%s — QuickCart",
   },
   description:
-    "Operations console for the QuickCart Intelligence Platform: live medallion-lakehouse KPIs, " +
-    "ML predictions, bounded agent proposals, and the system map of a local-first quick-commerce stack.",
+    "Local-first quick-commerce intelligence console: lakehouse, ML, RAG, and a bounded agent.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${fraunces.variable} ${plexMono.variable}`}>
-      <body>
-        <AppShell>{children}</AppShell>
+    <html
+      lang="en"
+      className={`${GeistSans.variable} ${GeistMono.variable}`}
+      suppressHydrationWarning
+    >
+      <body className="min-h-screen font-sans">
+        <ThemeProvider>
+          <PrefsProvider>
+            <TooltipProvider delay={200}>
+              <AppShell>{children}</AppShell>
+              <Toaster richColors position="bottom-right" />
+            </TooltipProvider>
+          </PrefsProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

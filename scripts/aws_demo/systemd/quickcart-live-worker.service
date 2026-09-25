@@ -1,0 +1,19 @@
+[Unit]
+Description=QuickCart continuous live pipeline worker
+Wants=network-online.target
+After=network-online.target docker.service
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/quikcart
+EnvironmentFile=-/home/ubuntu/quikcart/.env
+EnvironmentFile=-/home/ubuntu/quikcart/.env.aws-demo
+Environment=PATH=/home/ubuntu/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/ubuntu/.local/bin/uv run python -m quickcart.live.worker
+Restart=always
+RestartSec=5
+TimeoutStopSec=45
+
+[Install]
+WantedBy=multi-user.target

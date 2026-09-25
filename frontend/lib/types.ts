@@ -132,3 +132,88 @@ export interface AuditEntry {
   correlation_id?: string | null;
   created_at: string;
 }
+
+export type SqlSource = "postgres" | "lakehouse";
+
+export interface SqlExecuteRequest {
+  source: SqlSource;
+  sql: string;
+  limit?: number;
+}
+
+export interface SqlExecuteResponse {
+  columns: string[];
+  rows: Array<Record<string, unknown>>;
+  row_count: number;
+  truncated: boolean;
+  elapsed_ms: number;
+  source: SqlSource;
+}
+
+export interface SqlGenerateRequest {
+  question: string;
+  source: SqlSource;
+}
+
+export interface SqlGenerateResponse {
+  source: SqlSource;
+  sql: string;
+  /** null when no local model could be constructed at all (e.g. Ollama not installed). */
+  model: string | null;
+  /** True once the candidate has passed the same read-only guard execute would use. */
+  valid: boolean;
+  /** True when the local model itself was unreachable; `sql` is a heuristic fallback. */
+  degraded: boolean;
+  notes: string[];
+}
+
+export type CatalogLayer = "raw" | "bronze" | "silver" | "gold";
+
+export interface CatalogTable {
+  name: string;
+  layer: CatalogLayer;
+  columns: Array<{ name: string; type: string; nullable?: boolean }>;
+  row_count?: number | null;
+  path?: string | null;
+}
+
+export interface CatalogTablesResponse {
+  tables: CatalogTable[];
+}
+
+export interface CatalogPreviewResponse {
+  table: string;
+  layer: CatalogLayer;
+  columns: string[];
+  rows: Array<Record<string, unknown>>;
+}
+
+export interface ErEdge {
+  from_table: string;
+  from_column: string;
+  to_table: string;
+  to_column: string;
+}
+
+export interface ErDiagramResponse {
+  tables: Array<{ name: string; columns: string[] }>;
+  edges: ErEdge[];
+}
+
+// ---------------------------------------------------------------------------
+// Home command center — client-derived contracts. These are not part of the
+// FastAPI boundary; they are computed in the browser from existing endpoints
+// (kpis, live snapshot, anomalies, proposals, inventory risks) plus a small
+// set of illustrative demo-only figures (forecast accuracy, ticket volume)
+// for which no backend metric exists yet.
+// ---------------------------------------------------------------------------
+
+export type ActivityLogLevel = "info" | "warn" | "error";
+
+export interface ActivityLogEntry {
+  id: string;
+  ts: string;
+  level: ActivityLogLevel;
+  source: string;
+  message: string;
+}

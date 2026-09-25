@@ -193,6 +193,10 @@ _BLOCKED_WORDS = (
 )
 _BLOCKED_RE = re.compile(r"\b(" + "|".join(_BLOCKED_WORDS) + r")\b", re.IGNORECASE)
 _TABLE_REF_RE = re.compile(r"\b(?:from|join)\s+([A-Za-z_][A-Za-z0-9_]*)", re.IGNORECASE)
+_PSEUDO_FROM_FN_RE = re.compile(
+    r"\b(?:extract|substring|substr|trim|overlay)\s*\([^)]*\)",
+    re.IGNORECASE | re.DOTALL,
+)
 _CTE_RE = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\s+as\s*\(", re.IGNORECASE)
 _LIMIT_RE = re.compile(r"\blimit\s+(\d+)", re.IGNORECASE)
 _START_RE = re.compile(r"\s*(select|with)\b", re.IGNORECASE)
@@ -285,10 +289,15 @@ def validate_readonly_sql(sql: str) -> tuple[str, list[str]]:
             f"statement contains forbidden keyword {hit.group(1).upper()!r};"
             " the agent may only run read-only SELECTs"
         )
-    tables = [m.group(1) for m in _TABLE_REF_RE.finditer(masked)]
+    tables = [
+        m.group(1) for m in _TABLE_REF_RE.finditer(_PSEUDO_FROM_FN_RE.sub(" ", masked))
+    ]
     if not tables:
         raise ToolError("statement must reference at least one silver_*/gold_* table")
-    cte_names = {m.group(1).lower() for m in _CTE_RE.finditer(masked)}
+    cte_names = {
+        m.group(1).lower()
+        for m in _CTE_RE.finditer(_PSEUDO_FROM_FN_RE.sub(" ", masked))
+    }
     for table in tables:
         if table.lower() in cte_names:
             continue  # reference to a CTE defined inside this same statement

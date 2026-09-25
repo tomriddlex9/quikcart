@@ -10,7 +10,8 @@ __pycache__/
 .env
 
 # Generated data (local lakehouse, exports, checkpoints, artifacts)
-data/
+# Anchored to the repo root so the /data console route stays tracked.
+/data/
 *.parquet
 *.parquet.crc
 
@@ -31,3 +32,8 @@ qdrant_storage/
 # Editors
 .idea/
 .vscode/
+
+# AWS short-lived demo local state
+scripts/aws_demo/.state.env
+scripts/aws_demo/.state.env.destroyed.*
+scripts/aws_demo/.secrets/

@@ -112,6 +112,30 @@ if ! command -v uv >/dev/null; then
 fi
 
 cp -n .env.example .env
+# Preserve any previously configured Vercel origins so redeploy does not wipe CORS.
+EXISTING_CORS="$(grep -E '^QUICKCART_CORS_ORIGINS=' .env.aws-demo 2>/dev/null | cut -d= -f2- || true)"
+DEFAULT_CORS="http://${PUBLIC_IP}:3000,http://127.0.0.1:3000,http://localhost:3000"
+if [[ -n "${QUICKCART_CORS_ORIGINS:-}" ]]; then
+  MERGED_CORS="${QUICKCART_CORS_ORIGINS},${DEFAULT_CORS}"
+elif [[ -n "$EXISTING_CORS" ]]; then
+  MERGED_CORS="${EXISTING_CORS},${DEFAULT_CORS}"
+else
+  MERGED_CORS="$DEFAULT_CORS"
+fi
+# Deduplicate comma-separated origins while preserving order.
+MERGED_CORS="$(
+  python3 - <<'PY' "$MERGED_CORS"
+import sys
+seen = set()
+out = []
+for part in sys.argv[1].split(","):
+    origin = part.strip()
+    if origin and origin not in seen:
+        seen.add(origin)
+        out.append(origin)
+print(",".join(out))
+PY
+)"
 cat >.env.aws-demo <<EOF
 APP_ENV=aws-demo
 APP_HOST=0.0.0.0
@@ -119,7 +143,9 @@ APP_PORT=8000
 JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
 QUICKCART_DATA_ROOT=/home/ubuntu/quikcart/data
 QUICKCART_STORAGE_BACKEND=local
-QUICKCART_CORS_ORIGINS=http://${PUBLIC_IP}:3000,http://127.0.0.1:3000
+QUICKCART_CORS_ORIGINS=${MERGED_CORS}
+OLLAMA_BASE_URL=http://127.0.0.1:11434
+OLLAMA_MODEL=qwen2.5:1.5b
 MLFLOW_TRACKING_URI=file:///home/ubuntu/quikcart/data/mlruns
 NEXT_PUBLIC_API_BASE=http://${PUBLIC_IP}:8000
 NEXT_PUBLIC_STREAMLIT_URL=http://${PUBLIC_IP}:8501

@@ -10,7 +10,7 @@ WorkingDirectory=/home/ubuntu/quikcart
 EnvironmentFile=-/home/ubuntu/quikcart/.env
 EnvironmentFile=-/home/ubuntu/quikcart/.env.aws-demo
 Environment=PATH=/home/ubuntu/.local/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart=/home/ubuntu/.local/bin/uv run python -m quickcart.live.writer --rate 2
+ExecStart=/home/ubuntu/.local/bin/uv run python -m quickcart.simulator.live_writer --rate 2
 Restart=always
 RestartSec=5
 

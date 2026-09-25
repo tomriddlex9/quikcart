@@ -2,10 +2,26 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { Check, Copy, ExternalLink, FlaskConical } from "lucide-react";
+import { Check, Copy, ExternalLink } from "lucide-react";
 import { ApiBanner } from "@/components/api-banner";
 import { Pill, StatusDot } from "@/components/pill";
 import { EmptyState, Loading } from "@/components/states";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DEMO_SYSTEM_STATUS } from "@/lib/demo";
 import { useApiData } from "@/lib/use-api";
 import type { SystemStatus } from "@/lib/types";
@@ -53,169 +69,167 @@ export function PipelineStatus() {
   const demo = status.mode !== "live";
   const data = status.data;
 
+  if (data === null) {
+    return <Loading label="Waiting for /api/v1/system/status…" />;
+  }
+
+  const goldTables = Object.entries(data.data_root_tables ?? {});
+
   return (
     <>
       {demo ? <ApiBanner mode={status.mode} error={status.error} /> : null}
 
-      {data === null ? (
-        <Loading label="Waiting for /api/v1/system/status…" />
-      ) : (
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-            {(["postgres", "redpanda", "qdrant", "mlflow"] as const).map((svc) => {
-              const up = (data.services?.[svc] ?? "down").toLowerCase() === "up";
-              return (
-                <div key={svc} className="panel px-4 py-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[12px] text-paper-dim">{svc}</span>
-                    <Pill tone={up ? "green" : "red"}>
-                      <StatusDot tone={up ? "green" : "red"} />
-                      {up ? "up" : "down"}
-                    </Pill>
-                  </div>
-                  <div className="mt-1 text-[10px] text-faint">
-                    {svc === "postgres"
-                      ? "operational source"
-                      : svc === "redpanda"
-                        ? "event broker"
-                        : svc === "qdrant"
-                          ? "vector retrieval"
-                          : "experiment tracking"}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        {KNOWN_SERVICES.map((svc) => {
+          const up = (data.services?.[svc] ?? "down").toLowerCase() === "up";
+          return (
+            <Card key={svc} size="sm" className="gap-1">
+              <CardHeader>
+                <CardTitle className="text-sm">{svc}</CardTitle>
+                <CardDescription className="text-xs">{SERVICE_BLURB[svc]}</CardDescription>
+                <CardAction>
+                  <Pill tone={up ? "green" : "red"}>
+                    <StatusDot tone={up ? "green" : "red"} />
+                    {up ? "up" : "down"}
+                  </Pill>
+                </CardAction>
+              </CardHeader>
+            </Card>
+          );
+        })}
+      </div>
 
-          <div className="panel px-4 py-4">
-            <h2 className="mb-3 text-[12px] font-medium text-paper-dim">Gold marts on disk</h2>
-            {Object.keys(data.data_root_tables ?? {}).length === 0 ? (
-              <EmptyState
-                title="No gold tables reported"
-                hint="Run the lakehouse pipeline (make export-raw, then the Bronze→Silver→Gold jobs) so the data root has gold marts."
-              />
-            ) : (
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {Object.entries(data.data_root_tables).map(([name, value]) => {
-                  const t = tablePresent(value);
-                  return (
-                    <div
-                      key={name}
-                      className="flex items-center justify-between border border-line-soft px-3 py-2"
+      <Tabs defaultValue="gold" className="mt-4 gap-3">
+        <TabsList>
+          <TabsTrigger value="gold">Gold tables</TabsTrigger>
+          <TabsTrigger value="phases">Phases</TabsTrigger>
+          <TabsTrigger value="quality">Quality</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="gold">
+          {goldTables.length === 0 ? (
+            <EmptyState
+              title="No gold tables reported"
+              hint="Run the lakehouse pipeline so the data root has Gold marts."
+            />
+          ) : (
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {goldTables.map(([name, value]) => {
+                const t = tablePresent(value);
+                return (
+                  <div
+                    key={name}
+                    className="flex items-center justify-between gap-2 rounded-lg border border-border px-3 py-2"
+                  >
+                    <code className="truncate text-xs">{name}</code>
+                    <span
+                      className={`shrink-0 text-xs ${
+                        t.present === true ? "text-chart-2" : "text-muted-foreground"
+                      }`}
                     >
-                      <code className="text-[11px] text-paper-dim">{name}</code>
-                      <span
-                        className={`text-[10.5px] ${
-                          t.present === true
-                            ? "text-teal"
-                            : t.present === false
-                              ? "text-faint"
-                              : "text-muted"
-                        }`}
-                      >
-                        {t.label}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+                      {t.label}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </TabsContent>
 
-          <div className="panel px-4 py-4">
-            <h2 className="mb-3 text-[12px] font-medium text-paper-dim">
-              Phase checklist
-              <span className="ml-2 text-[10.5px] font-normal text-faint">
-                parsed from <code>kit/TASKS.md</code> at API startup
-              </span>
-            </h2>
-            {(data.phases ?? []).length === 0 ? (
-              <EmptyState title="No phase data" hint="The API could not parse kit/TASKS.md." />
-            ) : (
+        <TabsContent value="phases">
+          {(data.phases ?? []).length === 0 ? (
+            <EmptyState title="No phase data" hint="The API could not parse kit/TASKS.md." />
+          ) : (
+            <>
+              <p className="mb-2 text-xs text-muted-foreground">
+                Parsed from <code>kit/TASKS.md</code> at API startup.
+              </p>
               <ol className="grid grid-cols-1 gap-x-6 md:grid-cols-2">
                 {data.phases.map((p) => (
                   <li
                     key={String(p.phase)}
-                    className="flex items-center gap-2.5 border-b border-line-soft/50 py-2 text-[12px] last:border-0"
+                    className="flex items-center gap-2.5 border-b border-border py-2 text-sm last:border-0"
                   >
                     <StatusDot tone={statusTone(p.status)} />
-                    <span className="w-6 shrink-0 text-faint">
+                    <span className="w-6 shrink-0 tabular-nums text-muted-foreground">
                       {String(p.phase).padStart(2, "0")}
                     </span>
-                    <span className="min-w-0 flex-1 truncate text-paper-dim">{p.name}</span>
-                    <span className="shrink-0 text-[10.5px] text-faint">{p.status}</span>
+                    <span className="min-w-0 flex-1 truncate">{p.name}</span>
+                    <span className="shrink-0 text-xs text-muted-foreground">{p.status}</span>
                   </li>
                 ))}
               </ol>
-            )}
-          </div>
+            </>
+          )}
+        </TabsContent>
 
-          <div className="panel px-4 py-4">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-[12px] font-medium text-paper-dim">Data quality & quarantine</h2>
-              <button
-                type="button"
-                onClick={() => {
-                  void navigator.clipboard
-                    .writeText(JSON.stringify(data, null, 2))
-                    .then(() => setCopied(true))
-                    .catch(() => setCopied(false));
-                }}
-                className="flex items-center gap-1.5 border border-line px-2.5 py-1 text-[10.5px] text-muted transition-colors hover:text-paper"
-              >
-                {copied ? (
-                  <>
-                    <Check className="h-3 w-3 text-teal" strokeWidth={1.75} /> copied
-                  </>
-                ) : (
-                  <>
-                    <Copy className="h-3 w-3" strokeWidth={1.75} /> copy health JSON
-                  </>
-                )}
-              </button>
-            </div>
-
-            <div className="flex flex-wrap gap-1.5">
-              {serviceChips(data.services ?? {}).map(({ name, up, blurb }) => (
-                <Pill key={name} tone={up ? "green" : "red"}>
-                  <StatusDot tone={up ? "green" : "red"} />
-                  {name}
-                  <span className="text-faint">· {blurb}</span>
-                </Pill>
-              ))}
-            </div>
-
-            <div className="mt-3 flex flex-wrap items-start justify-between gap-3 border-t border-line-soft pt-3.5">
-              <div className="flex max-w-[75ch] items-start gap-2.5">
-                <FlaskConical className="mt-0.5 h-4 w-4 shrink-0 text-amber" strokeWidth={1.75} />
-                <div className="text-[12px] leading-relaxed text-paper-dim">
-                  Rows that fail validation never disappear — they are quarantined with structured
-                  error codes. After each pipeline run,{" "}
-                  <code className="text-amber/90">data/quarantine/quality_summary</code> records
-                  what was rejected and why: the quality rule that fired, the source batch, row
-                  counts per check, and a pointer to the full quarantined rows so nothing is lost.
-                  Review it to tell a real data problem apart from a schema drift.
-                </div>
+        <TabsContent value="quality">
+          <Card size="sm">
+            <CardHeader>
+              <CardTitle className="text-sm">Services &amp; quarantine</CardTitle>
+              <CardDescription className="text-xs">
+                Failed rows are quarantined with structured error codes, never dropped.
+              </CardDescription>
+              <CardAction>
+                <Button
+                  variant="outline"
+                  size="xs"
+                  onClick={() => {
+                    void navigator.clipboard
+                      .writeText(JSON.stringify(data, null, 2))
+                      .then(() => setCopied(true))
+                      .catch(() => setCopied(false));
+                  }}
+                >
+                  {copied ? (
+                    <Check className="text-chart-2" strokeWidth={1.75} />
+                  ) : (
+                    <Copy strokeWidth={1.75} />
+                  )}
+                  {copied ? "copied" : "health JSON"}
+                </Button>
+              </CardAction>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-wrap gap-1.5">
+                {serviceChips(data.services ?? {}).map(({ name, up, blurb }) => (
+                  <Pill key={name} tone={up ? "green" : "red"}>
+                    <StatusDot tone={up ? "green" : "red"} />
+                    {name}
+                    <span className="text-muted-foreground">· {blurb}</span>
+                  </Pill>
+                ))}
               </div>
-              <Link
-                href="/streamlit"
-                className="flex shrink-0 items-center gap-1.5 rounded-xs border border-line px-3 py-1.5 text-[11.5px] text-muted transition-colors hover:text-paper"
-              >
-                open Streamlit Pipeline page{" "}
-                <ExternalLink className="h-3 w-3" strokeWidth={1.75} />
-              </Link>
-            </div>
-            <p className="mt-2 text-[10.5px] leading-relaxed text-faint">
-              In the Streamlit dashboard (:8501) pick the Pipeline page from the sidebar — it lists
-              run timings, per-check pass/fail and the quarantine summary from the same directory.{" "}
-              <span className="text-muted">
-                “copy health JSON” copies the raw /api/v1/system/status payload above to your
-                clipboard for tickets and runbooks.
-              </span>
-            </p>
-          </div>
-        </div>
-      )}
+
+              <Accordion className="mt-3 border-t border-border">
+                <AccordionItem value="quarantine">
+                  <AccordionTrigger className="text-xs">
+                    What the quarantine summary records
+                  </AccordionTrigger>
+                  <AccordionContent className="text-xs text-muted-foreground">
+                    After each run, <code>data/quarantine/quality_summary</code> records the rule
+                    that fired, the source batch, row counts per check, and a pointer to the full
+                    rejected rows — enough to tell a real data problem from schema drift.
+                  </AccordionContent>
+                </AccordionItem>
+                <AccordionItem value="streamlit">
+                  <AccordionTrigger className="text-xs">Where to look next</AccordionTrigger>
+                  <AccordionContent className="text-xs text-muted-foreground">
+                    The Streamlit Pipeline page (:8501) lists run timings, per-check pass/fail and
+                    the same quarantine summary.
+                    <div className="mt-2">
+                      <Button variant="outline" size="xs" render={<Link href="/streamlit" />}>
+                        Open Streamlit
+                        <ExternalLink strokeWidth={1.75} />
+                      </Button>
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </>
   );
 }

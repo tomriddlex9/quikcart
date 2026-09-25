@@ -68,6 +68,14 @@ class TestPostgresHappyPath:
         assert "/*" not in guarded.sql
         assert guarded.tables == ["orders"]
 
+    def test_extract_from_is_not_a_table_reference(self) -> None:
+        guarded = guard_postgres_sql(
+            "SELECT extract(hour FROM placed_at) AS hour, count(*) "
+            "FROM orders GROUP BY 1"
+        )
+        assert guarded.tables == ["orders"]
+        assert "placed_at" not in guarded.tables
+
     def test_every_allow_listed_table_is_readable(self) -> None:
         for table in sorted(POSTGRES_TABLES):
             assert guard_postgres_sql(f"SELECT * FROM {table}").tables == [table]

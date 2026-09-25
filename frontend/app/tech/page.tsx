@@ -11,7 +11,7 @@ export default function TechPage() {
     <>
       <PageHeader
         title="Technology inventory"
-        description="Every pinned technology in the platform, the version it runs at, what job it does, and the phase that introduced it — from Python 3.12 and PostgreSQL 17.11 in Phase 0–1 to Qdrant, LangGraph and this Next.js console."
+        description="Pinned versions from pyproject.toml, docker-compose.yml and package.json, with the Compose profile and host port."
       />
       <TechGrid />
     </>

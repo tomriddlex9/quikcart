@@ -1,19 +1,16 @@
 import type { ReactNode } from "react";
+import { Loader2 } from "lucide-react";
+import { Skeleton as UiSkeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 
 export function Skeleton({ className = "" }: { className?: string }) {
-  return (
-    <div
-      aria-hidden
-      className={`animate-pulse bg-panel-2 ${className}`}
-      style={{ animationDuration: "1.6s" }}
-    />
-  );
+  return <UiSkeleton className={className} />;
 }
 
 export function Loading({ label = "Loading…" }: { label?: string }) {
   return (
-    <div className="panel flex items-center gap-3 px-4 py-6 text-[12px] text-muted">
-      <span className="live-dot inline-block h-2 w-2 rounded-full bg-teal" aria-hidden />
+    <div className="flex items-center gap-2 rounded-xl border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
+      <Loader2 className="size-3.5 animate-spin" strokeWidth={1.75} />
       {label}
     </div>
   );
@@ -23,25 +20,31 @@ export function EmptyState({
   title,
   hint,
   action,
+  className,
 }: {
   title: string;
   hint?: string;
   action?: ReactNode;
+  className?: string;
 }) {
   return (
-    <div className="panel flex flex-col items-start gap-2 px-4 py-8">
-      <div className="font-display text-[15px] text-paper-dim">{title}</div>
-      {hint ? <div className="max-w-[60ch] text-[12px] text-faint">{hint}</div> : null}
-      {action}
+    <div
+      className={cn(
+        "flex flex-col items-start gap-1.5 rounded-xl border border-dashed border-border px-4 py-8",
+        className,
+      )}
+    >
+      <div className="text-sm font-medium text-foreground">{title}</div>
+      {hint ? <div className="max-w-[70ch] text-sm text-muted-foreground">{hint}</div> : null}
+      {action ? <div className="mt-2">{action}</div> : null}
     </div>
   );
 }
 
 export function ErrorState({ message }: { message: string }) {
   return (
-    <div className="panel border-red-dim/50 px-4 py-6 text-[12px] text-red">
-      <span className="font-semibold">Something went wrong.</span>{" "}
-      <span className="text-red/80">{message}</span>
+    <div className="rounded-xl border border-destructive/40 bg-destructive/5 px-4 py-6 text-sm text-destructive">
+      <span className="font-medium">Something went wrong.</span> <span>{message}</span>
     </div>
   );
 }

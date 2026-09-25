@@ -131,6 +131,11 @@ _TABLE_REF_RE = re.compile(
     r"\b(?:from|join)\s+((?:[A-Za-z_][A-Za-z0-9_]*\s*\.\s*)?[A-Za-z_][A-Za-z0-9_]*)",
     re.IGNORECASE,
 )
+# EXTRACT / SUBSTRING / TRIM use "FROM" inside a function call — not a table ref.
+_PSEUDO_FROM_FN_RE = re.compile(
+    r"\b(?:extract|substring|substr|trim|overlay)\s*\([^)]*\)",
+    re.IGNORECASE | re.DOTALL,
+)
 _CTE_RE = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\s+as\s*\(", re.IGNORECASE)
 _LIMIT_RE = re.compile(r"\blimit\s+(\d+)", re.IGNORECASE)
 _START_RE = re.compile(r"\s*(?:select|with)\b", re.IGNORECASE)
@@ -288,10 +293,11 @@ def guard_postgres_sql(sql: str, limit: int | None = None) -> GuardedSql:
         )
     if hit := _PG_BLOCKED_FUNCTION_RE.search(masked):
         raise SqlGuardError(f"function {hit.group(1).lower()!r} is not allowed")
-    references = [m.group(1) for m in _TABLE_REF_RE.finditer(masked)]
+    table_scan = _PSEUDO_FROM_FN_RE.sub(" ", masked)
+    references = [m.group(1) for m in _TABLE_REF_RE.finditer(table_scan)]
     if not references:
         raise SqlGuardError("statement must reference at least one operational table")
-    cte_names = {m.group(1).lower() for m in _CTE_RE.finditer(masked)}
+    cte_names = {m.group(1).lower() for m in _CTE_RE.finditer(table_scan)}
     physical: list[str] = []
     for reference in references:
         table = _normalize_table_ref(reference)

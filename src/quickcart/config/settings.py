@@ -46,7 +46,7 @@ class Settings(BaseSettings):
 
     # Local LLM (Phase 13, Ollama) — model choice is configuration, never hard-coded
     ollama_base_url: str = "http://127.0.0.1:11434"
-    ollama_model: str = "qwen3:4b"
+    ollama_model: str = "qwen2.5:1.5b"
 
     # Ordered, versioned DDL migration scripts
     migrations_dir: Path = Path("infrastructure/postgres/migrations")

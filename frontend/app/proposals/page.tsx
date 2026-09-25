@@ -11,7 +11,7 @@ export default function ProposalsPage() {
     <>
       <PageHeader
         title="Approval queue"
-        description="Every action the platform wants to take waits here first. The assistant and operators file proposals; a named human approves or rejects; approved restocks execute in one audited transaction against PostgreSQL."
+        description="Every action waits here first. A named human approves or rejects; approved restocks execute in one audited transaction."
       />
       <ProposalsBoard />
     </>

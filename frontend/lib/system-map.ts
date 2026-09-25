@@ -34,12 +34,12 @@ export interface MapEdge {
 }
 
 export const EDGE_KIND_META: Record<EdgeKind, { label: string; color: string }> = {
-  batch: { label: "batch", color: "#8b94a3" },
-  stream: { label: "streaming", color: "#5cc0b0" },
-  cdc: { label: "CDC", color: "#f2a93b" },
-  rag: { label: "RAG", color: "#b48ede" },
-  serve: { label: "serving", color: "#e9e2d2" },
-  ops: { label: "ops / storage", color: "#6f7d92" },
+  batch: { label: "batch", color: "var(--chart-1)" },
+  stream: { label: "streaming", color: "var(--chart-2)" },
+  cdc: { label: "CDC", color: "var(--chart-3)" },
+  rag: { label: "RAG", color: "var(--chart-5)" },
+  serve: { label: "serving", color: "var(--foreground)" },
+  ops: { label: "ops / storage", color: "var(--muted-foreground)" },
 };
 
 export const MAP_W = 1280;

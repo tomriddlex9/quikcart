@@ -16,10 +16,12 @@ export function ActivityLog({
   entries,
   loading,
   live,
+  listClassName = "h-[280px]",
 }: {
   entries: ActivityLogEntry[];
   loading: boolean;
   live: boolean;
+  listClassName?: string;
 }) {
   return (
     <ChartShell
@@ -28,13 +30,17 @@ export function ActivityLog({
       right={<Pill tone={live ? "teal" : "amber"}>{live ? "live" : "demo data"}</Pill>}
     >
       {loading ? (
-        <Skeleton className="h-[280px] rounded-lg" />
+        <Skeleton className={`${listClassName} rounded-lg`} />
       ) : entries.length === 0 ? (
-        <div className="flex h-[280px] items-center justify-center text-xs text-muted-foreground">
+        <div
+          className={`flex ${listClassName} items-center justify-center text-xs text-muted-foreground`}
+        >
           No activity recorded yet.
         </div>
       ) : (
-        <div className="h-[280px] overflow-y-auto rounded-lg border border-border/60 bg-muted/20 px-3 py-2 font-mono text-[11px] leading-relaxed">
+        <div
+          className={`${listClassName} overflow-y-auto rounded-lg border border-border/60 bg-muted/20 px-3 py-2 font-mono text-[11px] leading-relaxed`}
+        >
           {entries.map((entry) => (
             <div key={entry.id} className="flex items-start gap-2 py-0.5">
               <span className="shrink-0 tabular-nums text-muted-foreground">

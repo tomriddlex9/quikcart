@@ -1,6 +1,11 @@
 import type { Metadata } from "next";
 import { PageHeader } from "@/components/page-header";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  StackedTabs,
+  StackedTabsContent,
+  StackedTabsList,
+  StackedTabsTrigger,
+} from "@/components/ui/stacked-tabs";
 import { ArchitectureLineage } from "@/components/architecture/architecture-lineage";
 import { FlowDiagram } from "@/components/architecture/flow-diagram";
 import { MermaidView } from "@/components/architecture/mermaid-view";
@@ -16,22 +21,22 @@ export default function ArchitecturePage() {
         description="Simulator → Postgres → batch + CDC → Bronze → Silver (+ quarantine) → Gold → ML/RAG/Agent → FastAPI → Streamlit + Next.js. Click a node for details."
       />
 
-      <Tabs defaultValue="diagram">
-        <TabsList className="print:hidden">
-          <TabsTrigger value="diagram">Diagram</TabsTrigger>
-          <TabsTrigger value="mermaid">Mermaid</TabsTrigger>
-          <TabsTrigger value="lineage">Lineage</TabsTrigger>
-        </TabsList>
-        <TabsContent value="diagram" className="mt-4">
+      <StackedTabs defaultValue="diagram">
+        <StackedTabsList className="print:hidden" aria-label="Architecture view">
+          <StackedTabsTrigger value="diagram">Diagram</StackedTabsTrigger>
+          <StackedTabsTrigger value="mermaid">Mermaid</StackedTabsTrigger>
+          <StackedTabsTrigger value="lineage">Lineage</StackedTabsTrigger>
+        </StackedTabsList>
+        <StackedTabsContent value="diagram">
           <FlowDiagram />
-        </TabsContent>
-        <TabsContent value="mermaid" className="mt-4">
+        </StackedTabsContent>
+        <StackedTabsContent value="mermaid">
           <MermaidView />
-        </TabsContent>
-        <TabsContent value="lineage" className="mt-4">
+        </StackedTabsContent>
+        <StackedTabsContent value="lineage">
           <ArchitectureLineage />
-        </TabsContent>
-      </Tabs>
+        </StackedTabsContent>
+      </StackedTabs>
 
       <div className="mt-6">
         <TrustCallout />

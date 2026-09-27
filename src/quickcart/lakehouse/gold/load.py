@@ -17,6 +17,14 @@ def _silver(spark: SparkSession, root: Path | None, table: str):
     return spark.read.format("delta").load(table_location("silver", table, root))
 
 
+def _silver_optional(spark: SparkSession, root: Path | None, table: str):
+    if get_settings().storage_backend != "s3":
+        path = table_path("silver", table, root)
+        if not path.exists():
+            return None
+    return spark.read.format("delta").load(table_location("silver", table, root))
+
+
 def run_gold(spark: SparkSession, root: Path | None = None) -> dict[str, int]:
     silver = {
         name: _silver(spark, root, name)
@@ -47,7 +55,9 @@ def run_gold(spark: SparkSession, root: Path | None = None) -> dict[str, int]:
             silver["silver_inventory"], silver["silver_inventory_movements"]
         ),
         "gold_delivery_performance": MARTS["gold_delivery_performance"](
-            silver["silver_orders"], silver["silver_deliveries"]
+            silver["silver_orders"],
+            silver["silver_deliveries"],
+            store_weather=_silver_optional(spark, root, "silver_store_weather"),
         ),
         "gold_product_performance": MARTS["gold_product_performance"](
             silver["silver_order_items"], silver["silver_products"], silver["silver_orders"]

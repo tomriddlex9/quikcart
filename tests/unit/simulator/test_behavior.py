@@ -66,6 +66,37 @@ def test_card_fails_more_than_upi_and_retries_improve() -> None:
 
 
 @pytest.mark.unit
+def test_burst_factor_scales_effective_order_rate() -> None:
+    base = behavior.effective_orders_per_minute(60.0, 1.0)
+    burst = behavior.effective_orders_per_minute(60.0, 2.0)
+    assert burst == pytest.approx(base * 2.0)
+    assert behavior.order_inter_arrival_seconds(60.0, 2.0) == pytest.approx(
+        behavior.order_inter_arrival_seconds(60.0, 1.0) / 2.0
+    )
+
+
+@pytest.mark.unit
+def test_payment_fail_rate_increases_first_attempt_failures() -> None:
+    rng_low = np.random.default_rng(3)
+    rng_high = np.random.default_rng(3)
+    low = sum(
+        behavior.should_fail_payment(rng_low, "UPI", 1, payment_fail_rate=0.0)
+        for _ in range(500)
+    )
+    high = sum(
+        behavior.should_fail_payment(rng_high, "UPI", 1, payment_fail_rate=0.5)
+        for _ in range(500)
+    )
+    assert high > low
+
+
+@pytest.mark.unit
+def test_inventory_churn_delta_restock_when_empty() -> None:
+    rng = np.random.default_rng(9)
+    assert behavior.inventory_churn_delta(rng, 0) >= 5
+
+
+@pytest.mark.unit
 def test_weather_draw_is_seeded() -> None:
     rng_a = np.random.default_rng(5)
     rng_b = np.random.default_rng(5)

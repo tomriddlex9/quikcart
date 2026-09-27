@@ -250,6 +250,12 @@ export const DEMO_PAYMENT_FAILURE_RATE = 0.032;
 /** Forecast MAPE (mean absolute % error) for the daily demand model — illustrative. */
 export const DEMO_FORECAST_MAPE = 0.086;
 
+/** Pipeline end-to-end lag when /api/v1/live/pipeline is offline. */
+export const DEMO_PIPELINE_LAG_SECONDS = 42;
+
+/** Composite quality score for the Status KPI strip when pipeline/status probes are offline. */
+export const DEMO_QUALITY_SCORE = 92;
+
 /** Fallback activity-log entries shown when live/pipeline/proposal/anomaly feeds are all offline. */
 export const DEMO_ACTIVITY_LOG: ActivityLogEntry[] = [
   {

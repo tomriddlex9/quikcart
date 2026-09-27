@@ -104,6 +104,9 @@ class SqlGenerateResponse(BaseModel):
     valid: bool
     degraded: bool
     notes: list[str] = Field(default_factory=list)
+    intent: str = "read"
+    allowed: bool = True
+    joke: str | None = None
 
 
 class CatalogColumn(BaseModel):

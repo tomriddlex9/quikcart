@@ -2,7 +2,12 @@ import type { Metadata } from "next";
 import { PageHeader } from "@/components/page-header";
 import { StepFlow } from "@/components/learn/blocks";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  StackedTabs,
+  StackedTabsContent,
+  StackedTabsList,
+  StackedTabsTrigger,
+} from "@/components/ui/stacked-tabs";
 import { FLOWS, GOLD_MARTS } from "@/lib/learn/lineage";
 
 export const metadata: Metadata = { title: "Data lineage" };
@@ -15,20 +20,20 @@ export default function LineagePage() {
         description="Five paths with the tables and commands that actually exist. An approved restock is the only path back into PostgreSQL."
       />
 
-      <Tabs defaultValue={FLOWS[0]?.id} className="gap-4">
-        <TabsList>
+      <StackedTabs defaultValue={FLOWS[0]?.id}>
+        <StackedTabsList aria-label="Lineage flow">
           {FLOWS.map((flow) => (
-            <TabsTrigger key={flow.id} value={flow.id}>
+            <StackedTabsTrigger key={flow.id} value={flow.id}>
               {flow.title}
-            </TabsTrigger>
+            </StackedTabsTrigger>
           ))}
-        </TabsList>
+        </StackedTabsList>
         {FLOWS.map((flow) => (
-          <TabsContent key={flow.id} value={flow.id}>
+          <StackedTabsContent key={flow.id} value={flow.id}>
             <StepFlow title={flow.title} summary={flow.summary} steps={flow.steps} />
-          </TabsContent>
+          </StackedTabsContent>
         ))}
-      </Tabs>
+      </StackedTabs>
 
       <Card size="sm" className="mt-6">
         <CardHeader>

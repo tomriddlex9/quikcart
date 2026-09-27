@@ -42,9 +42,83 @@ check() {
   fi
 }
 
+check_api_v1_health() {
+  local v1_url="http://${IP}:8000/api/v1/health"
+  local legacy_url="http://${IP}:8000/health"
+  local output="${TMP_DIR}/api-v1-health.body" code url_used
+  code="$(curl -sS -o "$output" -w '%{http_code}' \
+    --connect-timeout 10 --max-time 30 "$v1_url" 2>/dev/null || echo 000)"
+  url_used="$v1_url"
+  if [[ "$code" == 404 ]]; then
+    code="$(curl -sS -o "$output" -w '%{http_code}' \
+      --connect-timeout 10 --max-time 30 "$legacy_url" 2>/dev/null || echo 000)"
+    url_used="${legacy_url} (fallback; /api/v1/health missing)"
+  fi
+  if [[ "$code" == 200 ]]; then
+    echo "OK   api-v1-health (${code}) ${url_used}"
+  else
+    echo "FAIL api-v1-health (${code}) ${url_used}"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+check_sql_generate() {
+  local url="http://${IP}:8000/api/v1/sql/generate"
+  local output="${TMP_DIR}/sql-generate.json" code verdict
+  code="$(curl -sS -o "$output" -w '%{http_code}' \
+    --connect-timeout 10 --max-time 120 \
+    -H 'Content-Type: application/json' \
+    -d '{"question":"how many orders exist?","source":"postgres"}' \
+    "$url" 2>/dev/null || echo 000)"
+  if [[ "$code" != 200 ]]; then
+    echo "FAIL sql-generate (${code}) ${url}"
+    FAIL=$((FAIL + 1))
+    return 0
+  fi
+  verdict="$(python3 - "$output" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as handle:
+    payload = json.load(handle)
+allowed = bool(payload.get("allowed"))
+degraded = bool(payload.get("degraded"))
+if allowed or degraded:
+    print("ok")
+else:
+    print("bad")
+PY
+)"
+  if [[ "$verdict" == ok ]]; then
+    echo "OK   sql-generate (${code}) ${url}"
+  else
+    echo "FAIL sql-generate (${code}) ${url} (expected allowed or degraded)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+check_streamlit_if_reachable() {
+  local url="http://${IP}:8501"
+  local code
+  code="$(curl -sS -o /dev/null -w '%{http_code}' \
+    --connect-timeout 5 --max-time 20 "$url" 2>/dev/null || echo 000)"
+  if [[ "$code" == 200 || "$code" == 304 ]]; then
+    echo "OK   streamlit (${code}) ${url}"
+  elif [[ "$code" == 000 ]]; then
+    echo "WARN streamlit unreachable (${code}) ${url}"
+  else
+    echo "FAIL streamlit (${code}) ${url}"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+check_api_v1_health
 check health "http://${IP}:8000/health"
+check sim-status "http://${IP}:8000/api/v1/sim/status"
+check_sql_generate
 check console "http://${IP}:3000"
-check streamlit "http://${IP}:8501"
+check_streamlit_if_reachable
 check live-snapshot "http://${IP}:8000/api/v1/live/snapshot"
 check live-pipeline-1 "http://${IP}:8000/api/v1/live/pipeline" "${TMP_DIR}/pipeline-1.json"
 

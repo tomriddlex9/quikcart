@@ -32,6 +32,32 @@ export interface StoreRow {
   late_rate: number;
 }
 
+export interface GeoWeatherSummary {
+  condition?: string | null;
+  temperature_c?: number | null;
+  observed_at?: string | null;
+  source?: string | null;
+}
+
+export interface GeoTrafficSummary {
+  eta_delay_sec?: number | null;
+  actual_eta_sec?: number | null;
+  baseline_eta_sec?: number | null;
+  observed_at?: string | null;
+  source?: string | null;
+}
+
+export interface GeoStore {
+  store_id: number;
+  name: string;
+  city: string;
+  latitude: number;
+  longitude: number;
+  weather?: GeoWeatherSummary | null;
+  traffic?: GeoTrafficSummary | null;
+  demo?: boolean;
+}
+
 export interface InventoryRiskRow {
   store_id: number;
   sku: string;
@@ -165,6 +191,12 @@ export interface SqlGenerateResponse {
   /** True when the local model itself was unreachable; `sql` is a heuristic fallback. */
   degraded: boolean;
   notes: string[];
+  /** Classified natural-language intent (`read` | `mutate` | …). */
+  intent?: string;
+  /** False when intent guardrails blocked generation before the model ran. */
+  allowed?: boolean;
+  /** Optional joke when a blocked intent is refused. */
+  joke?: string | null;
 }
 
 export type CatalogLayer = "raw" | "bronze" | "silver" | "gold";

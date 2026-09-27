@@ -21,7 +21,8 @@ import {
 } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { StackedTabsList, StackedTabsTrigger } from "@/components/ui/stacked-tabs";
 import {
   Table,
   TableBody,
@@ -643,15 +644,15 @@ export function DatabaseExplorer() {
       {tablesState.mode !== "live" ? <ApiBanner mode={tablesState.mode} error={tablesState.error} /> : null}
 
       <Tabs value={activeTab} onValueChange={(value) => isExplorerTab(value) && setActiveTab(value)}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <TabsList variant="line" aria-label="Catalog layer">
+        <div className="flex flex-col gap-3">
+          <StackedTabsList aria-label="Catalog layer">
             {LAYERS.map((layer) => (
-              <TabsTrigger key={layer} value={layer}>
+              <StackedTabsTrigger key={layer} value={layer}>
                 {LAYER_LABELS[layer]}
-              </TabsTrigger>
+              </StackedTabsTrigger>
             ))}
-            <TabsTrigger value="lineage">Lineage</TabsTrigger>
-          </TabsList>
+            <StackedTabsTrigger value="lineage">Lineage</StackedTabsTrigger>
+          </StackedTabsList>
           <LayerCounts />
         </div>
 

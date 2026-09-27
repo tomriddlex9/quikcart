@@ -35,21 +35,42 @@ def test_inventory_risk_only_returns_flagged_rows(pipeline_run, spark_session) -
 
 
 def test_empty_gold_is_handled(spark_session, tmp_path) -> None:
-    """Readers surface empty data without crashing (page-level empty states)."""
-    from pyspark.sql import types as T
+    """Page renderers show actionable empty states when Gold is missing."""
+    from quickcart.dashboard_pages import PAGES, render_page
 
-    root = tmp_path / "empty"
-    for table, schema in {
-        "gold_store_hourly_metrics": T.StructType([T.StructField("gmv", T.StringType())]),
-    }.items():
-        path = root / "gold" / table
-        path.mkdir(parents=True)
-        spark_session.createDataFrame([], schema).write.format("delta").save(str(path))
-    # With only one gold table present, KPI aggregation over missing tables
-    # must fail loudly rather than fabricate numbers — assert the exception.
-    readers = GoldReaders(spark_session, root)
-    with pytest.raises(Exception):  # noqa: B017 — any analysis failure is acceptable here
-        readers.kpi_summary()
+    readers = GoldReaders(spark_session, tmp_path / "no-gold-yet")
+    infos: list[str] = []
+
+    class FakeSt:
+        columns = staticmethod(lambda n: [FakeSt() for _ in range(n)])
+
+        @staticmethod
+        def plotly_chart(*args, **kwargs):
+            pass
+
+        @staticmethod
+        def dataframe(*args, **kwargs):
+            pass
+
+        @staticmethod
+        def metric(*args, **kwargs):
+            pass
+
+        @staticmethod
+        def info(msg, **kwargs):
+            infos.append(str(msg))
+
+        caption = staticmethod(lambda *a, **k: None)
+        subheader = staticmethod(lambda *a, **k: None)
+        success = staticmethod(lambda *a, **k: None)
+        warning = staticmethod(lambda *a, **k: None)
+        selectbox = staticmethod(lambda label, options, **k: options[0])
+
+    for page in PAGES:
+        if page == "Approvals":
+            continue
+        render_page(page, readers, FakeSt())
+    assert any("make lakehouse" in msg for msg in infos)
 
 
 def test_page_functions_render_with_fake_streamlit(pipeline_run, spark_session) -> None:

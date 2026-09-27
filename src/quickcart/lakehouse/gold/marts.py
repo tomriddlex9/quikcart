@@ -9,9 +9,8 @@ Notes:
 - `active_riders_estimate` approximates riders on shift from static shift
   windows (shifts never cross midnight in the simulator) — an estimate, not
   an attendance record.
-- `weather_condition` in gold_delivery_performance is NULL: weather is a
-  generation-time signal not yet persisted in the OLTP schema; Phase 9's
-  weather ingestion fills it.
+- `weather_condition` on gold_delivery_performance comes from silver store
+  weather when raw weather has been ingested; otherwise NULL.
 """
 
 from pyspark.sql import DataFrame, Window
@@ -246,28 +245,49 @@ def gold_inventory_health(inventory: DataFrame, movements: DataFrame) -> DataFra
     )
 
 
-def gold_delivery_performance(orders: DataFrame, deliveries: DataFrame) -> DataFrame:
-    return (
-        deliveries.join(orders.select("order_id", "store_id", "placed_at"), "order_id")
-        .select(
-            "order_id",
-            "delivery_id",
-            "store_id",
-            "rider_id",
-            "placed_at",
-            "assigned_at",
-            "picked_up_at",
-            "delivered_at",
-            "promised_by",
-            _minutes("picked_up_at", "assigned_at").alias("pick_minutes"),
-            _minutes("delivered_at", "picked_up_at").alias("delivery_minutes"),
-            _minutes("delivered_at", "placed_at").alias("total_fulfillment_minutes"),
-            (F.col("delivered_at") > F.col("promised_by")).alias("is_late"),
-            "estimated_distance_km",
-            F.lit(None).cast("string").alias("weather_condition"),
+def gold_delivery_performance(
+    orders: DataFrame,
+    deliveries: DataFrame,
+    store_weather: DataFrame | None = None,
+) -> DataFrame:
+    base = deliveries.join(orders.select("order_id", "store_id", "placed_at"), "order_id")
+    if store_weather is not None:
+        weather = store_weather.select(
+            F.col("store_id").alias("_weather_store_id"),
+            F.col("weather_hour"),
+            F.col("weather_condition"),
         )
-        .orderBy("order_id")
-    )
+        base = (
+            base.withColumn("placed_hour", F.date_trunc("hour", F.col("placed_at")))
+            .join(
+                weather,
+                (F.col("store_id") == F.col("_weather_store_id"))
+                & (F.col("placed_hour") == F.col("weather_hour")),
+                "left",
+            )
+            .drop("_weather_store_id", "placed_hour", "weather_hour")
+        )
+        weather_col = F.col("weather_condition")
+    else:
+        weather_col = F.lit(None).cast("string")
+
+    return base.select(
+        "order_id",
+        "delivery_id",
+        "store_id",
+        "rider_id",
+        "placed_at",
+        "assigned_at",
+        "picked_up_at",
+        "delivered_at",
+        "promised_by",
+        _minutes("picked_up_at", "assigned_at").alias("pick_minutes"),
+        _minutes("delivered_at", "picked_up_at").alias("delivery_minutes"),
+        _minutes("delivered_at", "placed_at").alias("total_fulfillment_minutes"),
+        (F.col("delivered_at") > F.col("promised_by")).alias("is_late"),
+        "estimated_distance_km",
+        weather_col.alias("weather_condition"),
+    ).orderBy("order_id")
 
 
 def gold_product_performance(

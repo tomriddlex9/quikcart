@@ -7,7 +7,12 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  StackedTabs,
+  StackedTabsContent,
+  StackedTabsList,
+  StackedTabsTrigger,
+} from "@/components/ui/stacked-tabs";
 import { PERFORMANCE, SECURITY, type Note } from "@/lib/learn/trust";
 
 export const metadata: Metadata = { title: "Trust and performance" };
@@ -49,25 +54,27 @@ export default function TrustPage() {
         description="What the code enforces, what is acceptable only because every port is on loopback, and which speedups are unmeasured candidates. Not a production audit."
       />
 
-      <Tabs defaultValue="security" className="gap-4">
-        <TabsList>
-          <TabsTrigger value="security">Security ({SECURITY.length})</TabsTrigger>
-          <TabsTrigger value="performance">Performance ({PERFORMANCE.length})</TabsTrigger>
-        </TabsList>
+      <StackedTabs defaultValue="security">
+        <StackedTabsList aria-label="Trust section">
+          <StackedTabsTrigger value="security">Security ({SECURITY.length})</StackedTabsTrigger>
+          <StackedTabsTrigger value="performance">
+            Performance ({PERFORMANCE.length})
+          </StackedTabsTrigger>
+        </StackedTabsList>
 
-        <TabsContent value="security">
+        <StackedTabsContent value="security">
           <Notes notes={SECURITY} />
-        </TabsContent>
+        </StackedTabsContent>
 
-        <TabsContent value="performance">
+        <StackedTabsContent value="performance">
           <p className="mb-3 max-w-[70ch] text-sm text-muted-foreground">
             None of these have been changed — the repository rule is to measure on this machine
             before claiming a speedup. Shuffle partitions stay at Spark&apos;s default of 200
             outside tests.
           </p>
           <Notes notes={PERFORMANCE} />
-        </TabsContent>
-      </Tabs>
+        </StackedTabsContent>
+      </StackedTabs>
     </>
   );
 }

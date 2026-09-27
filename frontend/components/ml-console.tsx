@@ -29,7 +29,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  StackedTabs,
+  StackedTabsContent,
+  StackedTabsList,
+  StackedTabsTrigger,
+} from "@/components/ui/stacked-tabs";
 import { apiGetJson, type ApiMode } from "@/lib/api";
 import {
   DEMO_ANOMALIES,
@@ -544,25 +549,25 @@ function ModelCardView({ card }: { card: ModelCard }) {
 
 export function MlConsole() {
   return (
-    <Tabs defaultValue="predictions" className="gap-4">
-      <TabsList>
-        <TabsTrigger value="predictions">Predictions</TabsTrigger>
-        <TabsTrigger value="anomalies">Anomalies</TabsTrigger>
-        <TabsTrigger value="models">Model cards</TabsTrigger>
-      </TabsList>
+    <StackedTabs defaultValue="predictions">
+      <StackedTabsList aria-label="ML console section">
+        <StackedTabsTrigger value="predictions">Predictions</StackedTabsTrigger>
+        <StackedTabsTrigger value="anomalies">Anomalies</StackedTabsTrigger>
+        <StackedTabsTrigger value="models">Model cards</StackedTabsTrigger>
+      </StackedTabsList>
 
-      <TabsContent value="predictions">
+      <StackedTabsContent value="predictions">
         <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
           <DeliveryLookup />
           <DemandLookup />
         </div>
-      </TabsContent>
+      </StackedTabsContent>
 
-      <TabsContent value="anomalies">
+      <StackedTabsContent value="anomalies">
         <AnomaliesPanel />
-      </TabsContent>
+      </StackedTabsContent>
 
-      <TabsContent value="models">
+      <StackedTabsContent value="models">
         <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
           {MODEL_CARDS.map((card) => (
             <ModelCardView key={card.id} card={card} />
@@ -572,7 +577,7 @@ export function MlConsole() {
           Documented from the training code in <code>src/quickcart/ml/</code>. Live values are the
           prediction rows under Predictions, which carry a real <code>model_version</code> per row.
         </p>
-      </TabsContent>
-    </Tabs>
+      </StackedTabsContent>
+    </StackedTabs>
   );
 }

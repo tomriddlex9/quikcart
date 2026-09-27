@@ -39,8 +39,8 @@ def test_create_order_inserts_fk_valid_decimal_rows_and_payment_retry(
     producer = RecordingProducer()
     monkeypatch.setattr(
         behavior,
-        "payment_failure_probability",
-        lambda method, attempt: 1.0 if attempt == 1 and method != "COD" else 0.0,
+        "should_fail_payment",
+        lambda rng, method, attempt, *, payment_fail_rate: attempt == 1 and method != "COD",
     )
 
     with connect() as conn:

@@ -190,6 +190,25 @@ def test_delivery_performance_match_hand_computed(fixture_frames) -> None:
     assert by_order[3]["is_late"] is True
 
 
+def test_delivery_performance_joins_store_weather(spark_session, fixture_frames) -> None:
+    store_weather = spark_session.createDataFrame(
+        [(10, "2026-03-01 10:00:00", "RAIN"), (20, "2026-03-01 10:00:00", "CLEAR")],
+        "store_id: bigint, weather_hour: string, weather_condition: string",
+    ).select(
+        "store_id",
+        F.to_timestamp("weather_hour").alias("weather_hour"),
+        "weather_condition",
+    )
+    result = marts.gold_delivery_performance(
+        fixture_frames["orders"],
+        fixture_frames["deliveries"],
+        store_weather,
+    ).collect()
+    by_order = {r["order_id"]: r for r in result}
+    assert by_order[1]["weather_condition"] == "RAIN"
+    assert by_order[4]["weather_condition"] == "CLEAR"
+
+
 def test_inventory_health_match_hand_computed(spark_session) -> None:
     snapshot = "2026-09-22 12:00:00"
     inventory = spark_session.createDataFrame(

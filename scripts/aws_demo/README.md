@@ -30,10 +30,17 @@ From the repository root:
 ./scripts/aws_demo/01_create.sh
 
 # Safe to rerun: sync, seed a small history, rebuild the lakehouse/models/RAG,
-# register Debezium, build Next.js, and restart all systemd services.
+# register Debezium, install Ollama (best-effort), build Next.js, and restart
+# all systemd services. Override the local model with OLLAMA_MODEL / OLLAMA_BASE_URL
+# when invoking deploy; values are written to .env.aws-demo for quickcart-api.
 ./scripts/aws_demo/02_deploy.sh
 
-# Checks HTTP endpoints, 60-second pipeline growth, SSE events, and free -m.
+# Optional: install or refresh Ollama on an existing instance without a full redeploy.
+./scripts/aws_demo/05_install_ollama_small.sh
+
+# Smoke-checks API health (/api/v1/health or /health), sim status, SQL generate
+# (read-only question; passes on allowed or degraded), Streamlit when reachable,
+# live pipeline growth, SSE events, and free -m.
 ./scripts/aws_demo/03_verify.sh
 ```
 
@@ -44,9 +51,18 @@ Public endpoints are printed by the deploy script:
 - Streamlit: `http://PUBLIC_IP:8501`
 - Qdrant dashboard: `http://PUBLIC_IP:6333/dashboard`
 
-The verification script specifically checks `/api/v1/live/snapshot`, samples
-`/api/v1/live/pipeline` twice 60 seconds apart, and requires at least two
-`data:` events from `/api/v1/live/stream` in ten seconds.
+The verification script specifically checks:
+
+- `/api/v1/health`, falling back to `/health` if the versioned route is absent
+- `GET /api/v1/sim/status`
+- `POST /api/v1/sql/generate` with a read-only Postgres question (HTTP 200 and
+  `allowed: true` or honest `degraded: true` when Ollama is down)
+- Streamlit on port 8501 when the port responds
+- `/api/v1/live/snapshot`, samples `/api/v1/live/pipeline` twice 60 seconds apart,
+  and requires at least two `data:` events from `/api/v1/live/stream` in ten seconds
+
+`quickcart-api` and `quickcart-streamlit` systemd units load
+`OLLAMA_BASE_URL` and `OLLAMA_MODEL` from `.env.aws-demo` when present.
 
 ## Services and logs
 

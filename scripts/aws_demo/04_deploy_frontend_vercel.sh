@@ -30,19 +30,26 @@ echo "Deploying console to Vercel"
 echo "  NEXT_PUBLIC_API_BASE=${API_BASE}"
 echo "  NEXT_PUBLIC_STREAMLIT_URL=${STREAMLIT_URL}"
 
+# Login + boot loading match quikcart.tomriddle.in (middleware requires session).
+# Set QUICKCART_PUBLIC_DEMO=1 only for an intentionally open showcase.
 DEPLOY_ARGS=(
   --prod
   --yes
   --cwd "${ROOT}/frontend"
+  --scope siddhants-projects-3e205b41
   -e "NEXT_PUBLIC_API_BASE=${API_BASE}"
   -e "NEXT_PUBLIC_STREAMLIT_URL=${STREAMLIT_URL}"
-  -e "QUICKCART_PUBLIC_DEMO=1"
-  -e "NEXT_PUBLIC_PUBLIC_DEMO=1"
   --build-env "NEXT_PUBLIC_API_BASE=${API_BASE}"
   --build-env "NEXT_PUBLIC_STREAMLIT_URL=${STREAMLIT_URL}"
-  --build-env "NEXT_PUBLIC_PUBLIC_DEMO=1"
-  --build-env "QUICKCART_PUBLIC_DEMO=1"
 )
+if [[ "${QUICKCART_PUBLIC_DEMO:-0}" == "1" ]]; then
+  DEPLOY_ARGS+=(
+    -e "QUICKCART_PUBLIC_DEMO=1"
+    -e "NEXT_PUBLIC_PUBLIC_DEMO=1"
+    --build-env "NEXT_PUBLIC_PUBLIC_DEMO=1"
+    --build-env "QUICKCART_PUBLIC_DEMO=1"
+  )
+fi
 
 if [[ -n "${VERCEL_TOKEN:-}" ]]; then
   DEPLOY_ARGS+=(--token "$VERCEL_TOKEN")

@@ -10,7 +10,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  StackedTabs,
+  StackedTabsContent,
+  StackedTabsList,
+  StackedTabsTrigger,
+} from "@/components/ui/stacked-tabs";
 import { MAKE_TARGETS, NOT_IN_MAKE, SERVICES } from "@/lib/learn/tooling";
 
 export const metadata: Metadata = { title: "Tooling" };
@@ -23,14 +28,14 @@ export default function ToolingPage() {
         description="How each process starts, which Compose profile owns it, and which host port it binds. Profiles are opt-in."
       />
 
-      <Tabs defaultValue="services" className="gap-4">
-        <TabsList>
-          <TabsTrigger value="services">Services</TabsTrigger>
-          <TabsTrigger value="make">Make targets</TabsTrigger>
-          <TabsTrigger value="manual">Not in the Makefile</TabsTrigger>
-        </TabsList>
+      <StackedTabs defaultValue="services">
+        <StackedTabsList aria-label="Tooling section">
+          <StackedTabsTrigger value="services">Services</StackedTabsTrigger>
+          <StackedTabsTrigger value="make">Make targets</StackedTabsTrigger>
+          <StackedTabsTrigger value="manual">Not in the Makefile</StackedTabsTrigger>
+        </StackedTabsList>
 
-        <TabsContent value="services">
+        <StackedTabsContent value="services">
           <Card size="sm" className="py-0">
             <Table className="min-w-[760px]">
               <TableHeader>
@@ -61,9 +66,9 @@ export default function ToolingPage() {
               </TableBody>
             </Table>
           </Card>
-        </TabsContent>
+        </StackedTabsContent>
 
-        <TabsContent value="make">
+        <StackedTabsContent value="make">
           <Card size="sm" className="py-0">
             <Table>
               <TableHeader>
@@ -84,9 +89,9 @@ export default function ToolingPage() {
               </TableBody>
             </Table>
           </Card>
-        </TabsContent>
+        </StackedTabsContent>
 
-        <TabsContent value="manual">
+        <StackedTabsContent value="manual">
           <ul className="space-y-2">
             {NOT_IN_MAKE.map((item) => (
               <li key={item} className="rounded-lg border border-border px-4 py-3 text-sm">
@@ -94,8 +99,8 @@ export default function ToolingPage() {
               </li>
             ))}
           </ul>
-        </TabsContent>
-      </Tabs>
+        </StackedTabsContent>
+      </StackedTabs>
     </>
   );
 }

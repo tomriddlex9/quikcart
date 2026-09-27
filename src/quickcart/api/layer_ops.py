@@ -162,14 +162,16 @@ _OPERATIONS: list[LayerOperation] = [
         layer="bronze",
         name="batch_weather_and_news_feeds",
         engine="python",
-        summary="Hourly pull of the external weather and local-news APIs, landed as-is.",
-        code=(
-            'weather = weather_api.fetch_hourly(cities=STORE_CITIES)\n'
-            'news = news_api.fetch_recent(cities=STORE_CITIES)\n'
-            'write_delta("/bronze/weather_feed", weather, mode="append")\n'
-            'write_delta("/bronze/news_feed", news, mode="append")'
+        summary=(
+            "Hourly Open-Meteo weather JSONL and city RSS news landed under data/raw, "
+            "promoted to bronze_weather_feed / bronze_news_feed."
         ),
-        inputs=["external.weather_feed", "external.news_feed"],
+        code=(
+            'ingest_weather(data_root=DATA_ROOT)  # quickcart.ingestion.weather\n'
+            'ingest_news(data_root=DATA_ROOT)     # quickcart.ingestion.news\n'
+            'run_bronze_external(spark, DATA_ROOT)  # JSONL → Delta bronze_*_feed'
+        ),
+        inputs=["external.open_meteo", "external.city_rss"],
         outputs=["bronze.weather_feed", "bronze.news_feed"],
         impact=OperationImpact(
             rows_in=19_680,
@@ -178,6 +180,28 @@ _OPERATIONS: list[LayerOperation] = [
             latency_ms=610,
             null_rate_before=0.11,
             null_rate_after=0.11,
+        ),
+    ),
+    LayerOperation(
+        id="bronze-batch-traffic",
+        layer="bronze",
+        name="batch_traffic_eta_feed",
+        engine="python",
+        summary=(
+            "Per-store ETA delay from OSRM public routing with deterministic rush-hour "
+            "fallback; lands JSONL then bronze_traffic_feed."
+        ),
+        code=(
+            'ingest_traffic(data_root=DATA_ROOT)  # quickcart.ingestion.traffic\n'
+            'run_bronze_external(spark, DATA_ROOT)  # includes bronze_traffic_feed'
+        ),
+        inputs=["external.osrm", "external.rush_hour_model"],
+        outputs=["bronze.traffic_feed"],
+        impact=OperationImpact(
+            rows_in=2_400,
+            rows_out=2_400,
+            columns_added=["eta_delay_sec", "baseline_eta_sec"],
+            latency_ms=890,
         ),
     ),
     LayerOperation(

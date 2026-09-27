@@ -420,11 +420,22 @@ def schema_summary(
         ]
         if not tables:
             notes.append("no silver/gold Delta tables found under the data root")
-    return _render_schema(tables), [table["name"] for table in tables], notes
+    return _render_schema(tables, source=source), [table["name"] for table in tables], notes
 
 
-def _render_schema(tables: Sequence[dict[str, Any]]) -> str:
+def _render_schema(tables: Sequence[dict[str, Any]], *, source: str | None = None) -> str:
     lines: list[str] = []
+    if source == "postgres":
+        lines.append(
+            "QuickCart operational (public): orders/order_items for baskets and GMV; "
+            "payments for settlement; stores and customers as dimensions; deliveries "
+            "for SLA/late metrics."
+        )
+    elif source == "lakehouse":
+        lines.append(
+            "QuickCart lakehouse: silver_* cleansed facts; gold_* marts "
+            "(gold_store_hourly_metrics, gold_delivery_performance, …)."
+        )
     for table in tables:
         columns = ", ".join(
             f"{column['name']} {column['type']}" for column in table.get("columns", [])

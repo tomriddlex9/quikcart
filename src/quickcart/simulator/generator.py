@@ -38,6 +38,25 @@ CITIES: list[tuple[str, float, float]] = [
     ("Jaipur", 26.912, 75.787),
     ("Ahmedabad", 23.023, 72.571),
 ]
+
+CITY_NEIGHBORHOODS: dict[str, tuple[str, ...]] = {
+    "Mumbai": ("Bandra West", "Andheri East", "Powai", "Lower Parel", "Goregaon"),
+    "Delhi": ("Connaught Place", "Saket", "Dwarka", "Rohini", "Karol Bagh"),
+    "Bengaluru": ("Indiranagar", "Koramangala", "Whitefield", "Jayanagar", "HSR Layout"),
+    "Hyderabad": ("Gachibowli", "Madhapur", "Banjara Hills", "Kukatpally", "Secunderabad"),
+    "Pune": ("Kothrud", "Hinjewadi", "Viman Nagar", "Baner", "Hadapsar"),
+    "Chennai": ("Adyar", "Velachery", "T Nagar", "Anna Nagar", "OMR"),
+    "Kolkata": ("Salt Lake", "Park Street", "New Town", "Ballygunge", "Howrah"),
+    "Gurugram": ("DLF Phase 3", "Sector 29", "Cyber City", "Sohna Road", "Palam Vihar"),
+    "Jaipur": ("Malviya Nagar", "Vaishali Nagar", "C Scheme", "Mansarovar", "Raja Park"),
+    "Ahmedabad": ("Satellite", "Vastrapur", "Navrangpura", "Bopal", "Maninagar"),
+}
+
+
+def neighborhood_label(city: str, seed: int) -> str:
+    """Deterministic locality label for a city + stable entity id."""
+    options = CITY_NEIGHBORHOODS.get(city, (city,))
+    return options[seed % len(options)]
 STORE_NAME_SUFFIXES = [
     "Central", "Market", "Station", "Heights", "Nagar",
     "Extension", "Plaza", "Garden", "Point", "Crossing",

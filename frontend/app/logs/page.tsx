@@ -11,7 +11,7 @@ export default function LogsPage() {
     <>
       <PageHeader
         title="Pipeline status"
-        description="Service health, Gold-table presence and the phase checklist, from the API's startup probe."
+        description="Live KPIs, medallion health, phase checklist, and a merged event stream from the API, SSE live feed, and pipeline heartbeats."
       />
       <PipelineStatus />
     </>

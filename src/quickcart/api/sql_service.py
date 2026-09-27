@@ -71,11 +71,23 @@ _STATEMENT_START_RE = re.compile(
 GENERATE_SYSTEM_PROMPT = (
     "You are a SQL assistant for the QuickCart data platform. Translate the "
     "user's question into exactly ONE read-only SQL SELECT statement.\n"
+    "QuickCart data model (use the Source + Schema block for exact columns):\n"
+    "- postgres: operational tables in public — orders and order_items for "
+    "baskets/GMV; payments for settlement status; stores and customers as "
+    "dimensions; deliveries for SLA and late-delivery metrics; inventory, "
+    "products, riders, promotions, support_tickets as needed.\n"
+    "- lakehouse: silver_* cleansed facts; gold_* analytics marts (e.g. "
+    "gold_store_hourly_metrics for hourly GMV and late rate by store, "
+    "gold_delivery_performance for delivery SLA).\n"
+    "Metric hints: GMV is typically sum(orders.total_amount) excluding "
+    "cancelled orders; late delivery joins orders/deliveries or reads gold "
+    "marts; payment failure uses payments.status.\n"
     "Rules:\n"
     '- Reply with JSON only, shaped {"sql": "SELECT ..."}.\n'
     "- One statement. No semicolon-separated statements.\n"
     "- Read-only: never INSERT, UPDATE, DELETE, or any DDL.\n"
     "- Use only the tables and columns listed in the schema.\n"
+    "- Prefer joins along obvious keys (order_id, store_id, customer_id).\n"
     "- Always end with an explicit LIMIT of at most 500 rows.\n"
 )
 
@@ -111,6 +123,9 @@ class GeneratedSql:
     valid: bool
     degraded: bool
     notes: list[str] = field(default_factory=list)
+    intent: str = "read"
+    allowed: bool = True
+    joke: str | None = None
 
 
 # --------------------------------------------------------------------------- #
@@ -333,16 +348,58 @@ def extract_sql(reply: str) -> str:
     return " ".join(statement.split())
 
 
+_ANALYTICS_TABLE_HINTS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    (("gmv", "revenue", "merchandise", "aov"), ("orders", "gold_store_hourly_metrics")),
+    (("late", "sla", "on time", "on-time"), ("deliveries", "gold_delivery_performance")),
+    (("delivery", "deliveries", "courier", "rider"), ("deliveries", "gold_delivery_performance")),
+    (("payment", "refund", "capture", "settlement"), ("payments",)),
+    (("store", "storefront", "by store"), ("stores", "gold_store_hourly_metrics")),
+    (("customer", "buyer", "shopper"), ("customers", "gold_customer_360")),
+    (("inventory", "stockout", "stock", "sku"), ("inventory", "gold_inventory_health")),
+    (("product", "catalog"), ("products", "gold_product_performance")),
+    (("order line", "line item", "basket"), ("order_items", "orders")),
+    (("ticket", "support"), ("support_tickets",)),
+    (("cancel", "cancellation"), ("orders",)),
+)
+
+
+def _tables_by_name(tables: Sequence[str]) -> dict[str, str]:
+    return {name.lower(): name for name in tables}
+
+
+def _pick_table(candidates: Sequence[str], by_name: dict[str, str]) -> str | None:
+    for candidate in candidates:
+        key = candidate.lower()
+        if key in by_name:
+            return by_name[key]
+    for candidate in candidates:
+        stem = candidate.lower()
+        for key, name in by_name.items():
+            if key == stem or key.endswith(stem) or stem in key:
+                return name
+    return None
+
+
 def heuristic_sql(question: str, tables: Sequence[str], row_cap: int = 50) -> str:
-    """Offline fallback: preview the table whose name the question mentions."""
+    """Offline fallback: pick a likely table and return a simple preview query."""
     asked = question.lower()
+    by_name = _tables_by_name(tables)
     matches = [table for table in tables if table.lower() in asked]
+    if not matches:
+        for keywords, candidates in _ANALYTICS_TABLE_HINTS:
+            if any(keyword in asked for keyword in keywords):
+                picked = _pick_table(candidates, by_name)
+                if picked is not None:
+                    matches = [picked]
+                    break
     if not matches:
         # `orders` should still match "how many order lines" — try the stem.
         matches = [table for table in tables if table.lower().rstrip("s") in asked]
     if not matches:
         return ""
     best = max(matches, key=len)
+    if re.search(r"\b(how many|count|number of)\b", asked):
+        return f"SELECT COUNT(*) AS n FROM {best} LIMIT {row_cap}"
     return f"SELECT * FROM {best} LIMIT {row_cap}"
 
 
@@ -364,8 +421,35 @@ def generate_sql(
     Ollama being down is an expected local condition, not a server fault: the
     result carries ``degraded=True`` plus notes and a heuristic statement (or
     an empty one), so the console can still say something honest.
+
+    Natural-language intent is classified first. Mutate / DDL / admin asks are
+    refused before any model call — the UI should surface ``joke`` + ``notes``.
     """
+    from quickcart.api.sql_intent import classify_sql_intent
+
     collected: list[str] = list(notes)
+    decision = classify_sql_intent(question)
+    if not decision.allowed:
+        collected.append(decision.reason)
+        if decision.joke:
+            collected.append(decision.joke)
+        log.info(
+            "sql.generate_intent_blocked",
+            intent=decision.intent,
+            reason=decision.reason,
+        )
+        return GeneratedSql(
+            source=source,
+            sql="",
+            model=None,
+            valid=False,
+            degraded=False,
+            notes=collected,
+            intent=decision.intent,
+            allowed=False,
+            joke=decision.joke,
+        )
+
     if llm is None:
         try:
             from quickcart.agents.llm import OllamaLLM
@@ -381,6 +465,9 @@ def generate_sql(
                 valid=False,
                 degraded=True,
                 notes=collected,
+                intent=decision.intent,
+                allowed=True,
+                joke=None,
             )
     model = getattr(llm, "model", None)
     messages = [
@@ -404,6 +491,9 @@ def generate_sql(
             valid=False,
             degraded=True,
             notes=collected,
+            intent=decision.intent,
+            allowed=True,
+            joke=None,
         )
     candidate = extract_sql(reply)
     if not candidate:
@@ -415,6 +505,9 @@ def generate_sql(
             valid=False,
             degraded=False,
             notes=collected,
+            intent=decision.intent,
+            allowed=True,
+            joke=None,
         )
     try:
         guarded = _guard_for(source)(candidate)
@@ -428,6 +521,9 @@ def generate_sql(
             valid=False,
             degraded=False,
             notes=collected,
+            intent=decision.intent,
+            allowed=True,
+            joke=None,
         )
     return GeneratedSql(
         source=source,
@@ -436,4 +532,7 @@ def generate_sql(
         valid=True,
         degraded=False,
         notes=collected,
+        intent=decision.intent,
+        allowed=True,
+        joke=None,
     )

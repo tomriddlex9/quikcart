@@ -283,6 +283,7 @@ class TestSchemaSummary:
         text, tables, notes = schema_summary(
             "postgres", connect_factory=information_schema_factory()
         )
+        assert "QuickCart operational" in text
         assert "- orders(order_id bigint, customer_id bigint)" in text
         assert tables == ["customers", "orders"]
         assert notes == []
@@ -302,7 +303,8 @@ class TestSchemaSummary:
         write_delta_table(tmp_path, "bronze", "bronze_orders", [field("order_id")])
         write_delta_table(tmp_path, "silver", "silver_orders", [field("order_id")])
         write_delta_table(tmp_path, "gold", "gold_customer_360", [field("customer_id")])
-        _, tables, notes = schema_summary("lakehouse", data_root=tmp_path)
+        text, tables, notes = schema_summary("lakehouse", data_root=tmp_path)
+        assert "QuickCart lakehouse" in text
         assert tables == ["silver_orders", "gold_customer_360"]
         assert notes == []
 

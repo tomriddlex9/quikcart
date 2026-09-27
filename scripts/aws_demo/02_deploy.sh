@@ -95,11 +95,16 @@ echo "Provisioning data, models, frontend, and long-running services..."
 "${SSH[@]}" bash -s -- \
   "$PUBLIC_IP" \
   "${QC_DEMO_HISTORICAL_ORDERS:-12000}" \
-  "${QC_SKIP_ANOMALY:-0}" <<'REMOTE'
+  "${QC_SKIP_ANOMALY:-0}" \
+  "${OLLAMA_BASE_URL:-http://127.0.0.1:11434}" \
+  "${OLLAMA_MODEL:-qwen2.5:1.5b}" <<'REMOTE'
 set -euo pipefail
 PUBLIC_IP="$1"
 export QC_DEMO_HISTORICAL_ORDERS="$2"
 export QC_SKIP_ANOMALY="$3"
+OLLAMA_BASE_URL="$4"
+OLLAMA_MODEL="$5"
+export OLLAMA_BASE_URL OLLAMA_MODEL
 cd /home/ubuntu/quikcart
 export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
 
@@ -144,8 +149,8 @@ JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
 QUICKCART_DATA_ROOT=/home/ubuntu/quikcart/data
 QUICKCART_STORAGE_BACKEND=local
 QUICKCART_CORS_ORIGINS=${MERGED_CORS}
-OLLAMA_BASE_URL=http://127.0.0.1:11434
-OLLAMA_MODEL=qwen2.5:1.5b
+OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
+OLLAMA_MODEL=${OLLAMA_MODEL}
 MLFLOW_TRACKING_URI=file:///home/ubuntu/quikcart/data/mlruns
 NEXT_PUBLIC_API_BASE=http://${PUBLIC_IP}:8000
 NEXT_PUBLIC_STREAMLIT_URL=http://${PUBLIC_IP}:8501
@@ -260,6 +265,16 @@ NEXT_PUBLIC_STREAMLIT_URL=http://${PUBLIC_IP}:8501
 EOF
 npm --prefix frontend ci
 npm --prefix frontend run build
+
+echo "Installing Ollama small model (best-effort)..."
+set +e
+export QC_OLLAMA_INSTALL_REMOTE=1
+export QC_AWS_DEMO_ENV_FILE=/home/ubuntu/quikcart/.env.aws-demo
+if ! bash scripts/aws_demo/05_install_ollama_small.sh; then
+  echo "WARNING: Ollama install failed; SQL generation may run degraded." >&2
+fi
+unset QC_OLLAMA_INSTALL_REMOTE QC_AWS_DEMO_ENV_FILE
+set -e
 
 chmod +x scripts/aws_demo/install_units.sh
 scripts/aws_demo/install_units.sh

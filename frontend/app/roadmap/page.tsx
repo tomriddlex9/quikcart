@@ -8,7 +8,12 @@ import {
 } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  StackedTabs,
+  StackedTabsContent,
+  StackedTabsList,
+  StackedTabsTrigger,
+} from "@/components/ui/stacked-tabs";
 import { DRIFTS, PHASES } from "@/lib/learn/roadmap";
 
 export const metadata: Metadata = { title: "Roadmap" };
@@ -33,13 +38,13 @@ export default function RoadmapPage() {
         description="Phase status as the repository stands. The checkboxes in kit/TASKS.md are the tracker the API parses."
       />
 
-      <Tabs defaultValue="phases" className="gap-4">
-        <TabsList>
-          <TabsTrigger value="phases">Phases ({PHASES.length})</TabsTrigger>
-          <TabsTrigger value="drift">Doc drift ({DRIFTS.length})</TabsTrigger>
-        </TabsList>
+      <StackedTabs defaultValue="phases">
+        <StackedTabsList aria-label="Roadmap section">
+          <StackedTabsTrigger value="phases">Phases ({PHASES.length})</StackedTabsTrigger>
+          <StackedTabsTrigger value="drift">Doc drift ({DRIFTS.length})</StackedTabsTrigger>
+        </StackedTabsList>
 
-        <TabsContent value="phases">
+        <StackedTabsContent value="phases">
           <Accordion className="border-t border-border">
             {PHASES.map((phase) => (
               <AccordionItem key={phase.phase} value={phase.phase}>
@@ -64,9 +69,9 @@ export default function RoadmapPage() {
               </AccordionItem>
             ))}
           </Accordion>
-        </TabsContent>
+        </StackedTabsContent>
 
-        <TabsContent value="drift">
+        <StackedTabsContent value="drift">
           <div className="grid gap-3 md:grid-cols-3">
             {DRIFTS.map((drift) => (
               <Card key={drift.title} size="sm">
@@ -79,8 +84,8 @@ export default function RoadmapPage() {
               </Card>
             ))}
           </div>
-        </TabsContent>
-      </Tabs>
+        </StackedTabsContent>
+      </StackedTabs>
     </>
   );
 }

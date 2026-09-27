@@ -215,6 +215,20 @@ def create_app(
     except ImportError:
         log.warning("api.live_routes_unavailable")
 
+    try:
+        from quickcart.api.external_feeds import register_external_feed_routes
+
+        register_external_feed_routes(app)
+    except ImportError:
+        log.warning("api.external_feed_routes_unavailable")
+
+    try:
+        from quickcart.api.geo import register_geo_routes
+
+        register_geo_routes(app)
+    except ImportError:
+        log.warning("api.geo_routes_unavailable")
+
     from quickcart.api.sim import register_sim_routes
 
     register_sim_routes(app)

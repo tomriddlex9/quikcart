@@ -15,8 +15,9 @@ import argparse
 import asyncio
 import json
 import signal
+import uuid
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Protocol
@@ -32,7 +33,12 @@ from quickcart.db.connection import connect
 from quickcart.live import sim_control as sim_control_module
 from quickcart.logging import configure_logging
 from quickcart.simulator import behavior
-from quickcart.simulator.generator import FAILURE_CODES, PAYMENT_METHOD_WEIGHTS, money
+from quickcart.simulator.generator import (
+    FAILURE_CODES,
+    PAYMENT_METHOD_WEIGHTS,
+    money,
+    neighborhood_label,
+)
 from quickcart.simulator.realtime import TOPIC, _event
 
 log = structlog.get_logger(__name__)
@@ -40,6 +46,15 @@ log = structlog.get_logger(__name__)
 INR = "INR"
 DEFAULT_CANCELLATION_PROBABILITY = 0.05
 SIM_CONTROL_POLL_SECONDS = 2.0
+INVENTORY_CHURN_PERIOD_SECONDS = 5.0
+RIDER_LOCATIONS_TOPIC = "quickcart.rider-locations.v1"
+RIDER_EVENT_NAMESPACE = uuid.uuid5(uuid.NAMESPACE_DNS, "quickcart.rider-locations")
+SUPPORT_TICKET_CATEGORIES = (
+    "DELIVERY_DELAY",
+    "MISSING_ITEM",
+    "PAYMENT_ISSUE",
+    "PRODUCT_QUALITY",
+)
 ConnectFactory = Callable[[], psycopg.Connection]
 
 
@@ -58,6 +73,13 @@ class CustomerReference:
 
 
 @dataclass
+class StoreGeo:
+    city: str
+    latitude: float
+    longitude: float
+
+
+@dataclass
 class ReferenceData:
     """Reference rows cached at startup, including an in-process stock view."""
 
@@ -65,8 +87,20 @@ class ReferenceData:
     product_ids: tuple[int, ...]
     customers: tuple[CustomerReference, ...]
     riders_by_store: dict[int, tuple[int, ...]]
+    rider_home_store: dict[int, int]
+    all_rider_ids: tuple[int, ...]
+    store_geo: dict[int, StoreGeo]
     inventory: dict[tuple[int, int], int]
     prices: dict[tuple[int | None, int], Decimal]
+
+
+@dataclass
+class ActiveSimControl:
+    """Latest polled sim-control snapshot (shared with background workers)."""
+
+    state: sim_control_module.SimControlState = field(
+        default_factory=sim_control_module.SimControlState
+    )
 
 
 @dataclass(frozen=True)
@@ -111,8 +145,22 @@ class StockUnavailable(RuntimeError):
 def load_reference_data(conn: psycopg.Connection) -> ReferenceData:
     """Load the operational reference rows needed to create FK-valid orders."""
     with conn.cursor(row_factory=dict_row) as cur:
-        cur.execute("SELECT store_id FROM stores WHERE is_active ORDER BY store_id")
-        store_ids = tuple(int(row["store_id"]) for row in cur.fetchall())
+        cur.execute(
+            """
+            SELECT store_id, city, latitude, longitude
+            FROM stores WHERE is_active ORDER BY store_id
+            """
+        )
+        store_rows = cur.fetchall()
+        store_ids = tuple(int(row["store_id"]) for row in store_rows)
+        store_geo = {
+            int(row["store_id"]): StoreGeo(
+                city=str(row["city"]),
+                latitude=float(row["latitude"]),
+                longitude=float(row["longitude"]),
+            )
+            for row in store_rows
+        }
 
         cur.execute("SELECT product_id FROM products WHERE is_active ORDER BY product_id")
         product_ids = tuple(int(row["product_id"]) for row in cur.fetchall())
@@ -149,6 +197,10 @@ def load_reference_data(conn: psycopg.Connection) -> ReferenceData:
             )
             for store_id in store_ids
         }
+        rider_home_store = {
+            int(row["rider_id"]): int(row["home_store_id"]) for row in rider_rows
+        }
+        all_rider_ids = tuple(int(row["rider_id"]) for row in rider_rows)
 
         cur.execute(
             """
@@ -192,6 +244,9 @@ def load_reference_data(conn: psycopg.Connection) -> ReferenceData:
         product_ids=product_ids,
         customers=customers,
         riders_by_store=riders_by_store,
+        rider_home_store=rider_home_store,
+        all_rider_ids=all_rider_ids,
+        store_geo=store_geo,
         inventory=inventory,
         prices=prices,
     )
@@ -270,6 +325,192 @@ def _publish(producer: EventProducer, event: dict[str, Any], order_id: int) -> N
     )
 
 
+def _rider_location_event(
+    rider_id: int,
+    store_id: int,
+    event_time: datetime,
+    *,
+    lat: float,
+    lng: float,
+) -> dict[str, Any]:
+    return {
+        "event_id": str(uuid.uuid5(RIDER_EVENT_NAMESPACE, f"{rider_id}:{event_time.timestamp()}")),
+        "event_type": "RIDER_LOCATION",
+        "schema_version": 1,
+        "event_time": event_time.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "producer": "quickcart-simulator",
+        "entity_type": "rider",
+        "entity_id": str(rider_id),
+        "store_id": store_id,
+        "payload": {"rider_id": rider_id, "lat": round(lat, 6), "lng": round(lng, 6)},
+    }
+
+
+def maybe_create_support_ticket(
+    conn: psycopg.Connection,
+    producer: EventProducer,
+    order: CreatedOrder,
+    rng: np.random.Generator,
+    *,
+    ticket_rate: float,
+) -> None:
+    if not behavior.should_open_ticket(rng, ticket_rate):
+        return
+    created_at = datetime.now(UTC)
+    category = SUPPORT_TICKET_CATEGORIES[
+        int(rng.integers(0, len(SUPPORT_TICKET_CATEGORIES)))
+    ]
+    priority = ("LOW", "MEDIUM", "HIGH")[int(rng.integers(0, 3))]
+    subject = f"{category.replace('_', ' ').title()} — order {order.order_id}"
+    body = "Customer contacted support via the live demo simulator."
+    payload = {
+        "order_id": order.order_id,
+        "customer_id": order.customer_id,
+        "category": category,
+        "priority": priority,
+        "subject": subject,
+    }
+    try:
+        with conn.transaction(), conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO support_tickets (
+                    customer_id, order_id, category, priority, status,
+                    subject, body, created_at, updated_at
+                )
+                VALUES (%s, %s, %s, %s, 'OPEN', %s, %s, %s, %s)
+                RETURNING ticket_id
+                """,
+                (
+                    order.customer_id,
+                    order.order_id,
+                    category,
+                    priority,
+                    subject,
+                    body,
+                    created_at,
+                    created_at,
+                ),
+            )
+            ticket_id = int(cur.fetchone()[0])
+    except psycopg.Error as exc:
+        if exc.pgcode != "42P01":
+            raise
+        log.info("live_writer.support_ticket_event", **payload)
+        producer.send(
+            TOPIC,
+            key=str(order.order_id).encode(),
+            value=json.dumps(
+                _event(
+                    "SUPPORT_TICKET_OPENED",
+                    order.order_id,
+                    order.store_id,
+                    created_at,
+                    payload,
+                ),
+                separators=(",", ":"),
+            ).encode(),
+        )
+        producer.flush()
+        return
+    log.info("live_writer.support_ticket_created", ticket_id=ticket_id, order_id=order.order_id)
+    producer.send(
+        TOPIC,
+        key=str(order.order_id).encode(),
+        value=json.dumps(
+            _event(
+                "SUPPORT_TICKET_OPENED",
+                order.order_id,
+                order.store_id,
+                created_at,
+                {**payload, "ticket_id": ticket_id},
+            ),
+            separators=(",", ":"),
+        ).encode(),
+    )
+    producer.flush()
+
+
+def apply_inventory_churn_tick(
+    conn: psycopg.Connection,
+    reference: ReferenceData,
+    rng: np.random.Generator,
+    *,
+    inventory_churn: float,
+) -> None:
+    if inventory_churn <= 0 or not reference.inventory:
+        return
+    if float(rng.random()) >= inventory_churn:
+        return
+    keys = list(reference.inventory.keys())
+    store_id, product_id = keys[int(rng.integers(0, len(keys)))]
+    on_hand = reference.inventory[(store_id, product_id)]
+    delta = behavior.inventory_churn_delta(rng, on_hand)
+    if delta == 0:
+        return
+    new_qty = max(0, on_hand + delta)
+    applied_delta = new_qty - on_hand
+    if applied_delta == 0:
+        return
+    changed_at = datetime.now(UTC)
+    movement_type = "RECEIPT" if applied_delta > 0 else "MANUAL_ADJUSTMENT"
+    with conn.transaction(), conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE inventory
+            SET on_hand_qty = %s, updated_at = %s
+            WHERE store_id = %s AND product_id = %s
+            """,
+            (new_qty, changed_at, store_id, product_id),
+        )
+        cur.execute(
+            """
+            INSERT INTO inventory_movements (
+                store_id, product_id, movement_type, quantity_delta,
+                reference_type, reference_id, occurred_at, created_at
+            )
+            VALUES (%s, %s, %s, %s, 'SIM_CHURN', %s, %s, %s)
+            """,
+            (
+                store_id,
+                product_id,
+                movement_type,
+                applied_delta,
+                f"{store_id}:{product_id}",
+                changed_at,
+                changed_at,
+            ),
+        )
+    if new_qty > 0:
+        reference.inventory[(store_id, product_id)] = new_qty
+    else:
+        reference.inventory.pop((store_id, product_id), None)
+
+
+def emit_rider_location_ping(
+    producer: EventProducer,
+    reference: ReferenceData,
+    rng: np.random.Generator,
+) -> None:
+    if not reference.all_rider_ids:
+        return
+    rider_id = int(reference.all_rider_ids[int(rng.integers(0, len(reference.all_rider_ids)))])
+    store_id = reference.rider_home_store[rider_id]
+    geo = reference.store_geo.get(store_id)
+    if geo is None:
+        return
+    event_time = datetime.now(UTC)
+    lat = geo.latitude + float(rng.normal(0, 0.008))
+    lng = geo.longitude + float(rng.normal(0, 0.008))
+    event = _rider_location_event(rider_id, store_id, event_time, lat=lat, lng=lng)
+    producer.send(
+        RIDER_LOCATIONS_TOPIC,
+        key=str(rider_id).encode(),
+        value=json.dumps(event, separators=(",", ":")).encode(),
+    )
+    producer.flush()
+
+
 def create_order(
     conn: psycopg.Connection,
     reference: ReferenceData,
@@ -277,6 +518,7 @@ def create_order(
     rng: np.random.Generator,
     *,
     payment_methods: Sequence[str] | None = None,
+    payment_fail_rate: float = 0.03,
 ) -> CreatedOrder:
     """Atomically create an order, reserve stock, and record payment attempts."""
     draft = _draft_order(reference, rng)
@@ -363,8 +605,8 @@ def create_order(
             )
 
         method = _draw_payment_method(rng, payment_methods)
-        first_attempt_failed = method != "COD" and (
-            rng.random() < behavior.payment_failure_probability(method, 1)
+        first_attempt_failed = behavior.should_fail_payment(
+            rng, method, 1, payment_fail_rate=payment_fail_rate
         )
         if first_attempt_failed:
             failure_code = FAILURE_CODES[int(rng.integers(0, len(FAILURE_CODES)))]
@@ -458,6 +700,9 @@ def create_order(
         key = (order.store_id, item.product_id)
         reference.inventory[key] -= item.quantity
 
+    store_city = reference.store_geo.get(order.store_id)
+    city = store_city.city if store_city else ""
+    neighborhood = neighborhood_label(city, order.customer_id) if city else ""
     _publish(
         producer,
         _event(
@@ -474,6 +719,8 @@ def create_order(
                 "discount": "0.00",
                 "total_amount": str(order.total_amount),
                 "currency": INR,
+                "city": city,
+                "neighborhood": neighborhood,
             },
         ),
         order.order_id,
@@ -813,8 +1060,53 @@ async def transition_order(
     return tuple(statuses)
 
 
-def _orders_per_minute_to_rate_per_sec(orders_per_minute: float) -> float:
-    return max(orders_per_minute, 1e-6) / 60.0
+async def _inventory_churn_worker(
+    *,
+    stop: asyncio.Event,
+    active_control: ActiveSimControl,
+    reference: ReferenceData,
+    producer: EventProducer,
+    rng: np.random.Generator,
+    connect_factory: ConnectFactory,
+) -> None:
+    while not stop.is_set():
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=INVENTORY_CHURN_PERIOD_SECONDS)
+            return
+        except TimeoutError:
+            pass
+        if not active_control.state.running:
+            continue
+        try:
+            with connect_factory() as conn:
+                apply_inventory_churn_tick(
+                    conn,
+                    reference,
+                    rng,
+                    inventory_churn=active_control.state.inventory_churn,
+                )
+        except Exception:
+            log.exception("live_writer.inventory_churn_failed")
+
+
+async def _rider_ping_worker(
+    *,
+    stop: asyncio.Event,
+    active_control: ActiveSimControl,
+    reference: ReferenceData,
+    producer: EventProducer,
+    rng: np.random.Generator,
+) -> None:
+    while not stop.is_set():
+        hz = max(active_control.state.rider_ping_hz, 0.01)
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=1.0 / hz)
+            return
+        except TimeoutError:
+            pass
+        if not active_control.state.running:
+            continue
+        emit_rider_location_ping(producer, reference, rng)
 
 
 async def run_live(
@@ -836,9 +1128,10 @@ async def run_live(
     until the shared ``sim_control.json`` file exists or is polled for the
     first time. From then on, ``control_loader`` (``sim_control.load_control``
     by default) is re-read roughly every ``control_poll_seconds`` and its
-    ``running``/``orders_per_minute``/``cancel_rate`` values drive the loop —
-    an operator flipping the demo dock's Stop switch or a slider pauses or
-    reshapes this writer without a restart.
+    ``running``, rate dials, and behavior knobs (``burst_factor``,
+    ``payment_fail_rate``, ``ticket_rate``, ``inventory_churn``,
+    ``rider_ping_hz``) drive the loop — an operator flipping the demo dock's
+    Stop switch or a slider pauses or reshapes this writer without a restart.
     """
     if rate_per_sec <= 0:
         raise ValueError("rate_per_sec must be positive")
@@ -846,11 +1139,12 @@ async def run_live(
         raise ValueError("burst must be positive")
 
     rng = rng or np.random.default_rng()
+    churn_rng = np.random.default_rng(int(rng.integers(0, np.iinfo(np.int64).max)))
+    rider_rng = np.random.default_rng(int(rng.integers(0, np.iinfo(np.int64).max)))
     with connect_factory() as conn:
         reference = load_reference_data(conn)
     delay = 1.0 / rate_per_sec
-    cancellation_probability = DEFAULT_CANCELLATION_PROBABILITY
-    running = True
+    active_control = ActiveSimControl()
     created = 0
     transitions: set[asyncio.Task[tuple[str, ...]]] = set()
     loop = asyncio.get_running_loop()
@@ -858,56 +1152,99 @@ async def run_live(
     # then does a (possibly still-default) sim_control.json take over.
     next_control_poll = loop.time() + control_poll_seconds
 
-    while not stop.is_set() and (burst is None or created < burst):
-        completed = {task for task in transitions if task.done()}
-        for task in completed:
-            task.result()
-        transitions.difference_update(completed)
+    churn_task = asyncio.create_task(
+        _inventory_churn_worker(
+            stop=stop,
+            active_control=active_control,
+            reference=reference,
+            producer=producer,
+            rng=churn_rng,
+            connect_factory=connect_factory,
+        ),
+        name="inventory-churn",
+    )
+    rider_task = asyncio.create_task(
+        _rider_ping_worker(
+            stop=stop,
+            active_control=active_control,
+            reference=reference,
+            producer=producer,
+            rng=rider_rng,
+        ),
+        name="rider-ping",
+    )
 
-        now = loop.time()
-        if now >= next_control_poll:
-            control = control_loader()
-            running = control.running
-            delay = 1.0 / _orders_per_minute_to_rate_per_sec(control.orders_per_minute)
-            cancellation_probability = control.cancel_rate
-            next_control_poll = now + control_poll_seconds
+    try:
+        while not stop.is_set() and (burst is None or created < burst):
+            completed = {task for task in transitions if task.done()}
+            for task in completed:
+                task.result()
+            transitions.difference_update(completed)
 
-        if not running:
+            now = loop.time()
+            if now >= next_control_poll:
+                active_control.state = control_loader()
+                delay = behavior.order_inter_arrival_seconds(
+                    active_control.state.orders_per_minute,
+                    active_control.state.burst_factor,
+                )
+                next_control_poll = now + control_poll_seconds
+
+            if not active_control.state.running:
+                try:
+                    await asyncio.wait_for(stop.wait(), timeout=control_poll_seconds)
+                except TimeoutError:
+                    continue
+                continue
+
+            with connect_factory() as conn:
+                try:
+                    order = create_order(
+                        conn,
+                        reference,
+                        producer,
+                        rng,
+                        payment_fail_rate=active_control.state.payment_fail_rate,
+                    )
+                    maybe_create_support_ticket(
+                        conn,
+                        producer,
+                        order,
+                        rng,
+                        ticket_rate=active_control.state.ticket_rate,
+                    )
+                except StockUnavailable:
+                    log.warning("live_writer.stock_refresh")
+                    reference = load_reference_data(conn)
+                    continue
+            transition_rng = np.random.default_rng(
+                int(rng.integers(0, np.iinfo(np.int64).max))
+            )
+            task = asyncio.create_task(
+                transition_order(
+                    order,
+                    reference,
+                    producer,
+                    transition_rng,
+                    cancellation_probability=active_control.state.cancel_rate,
+                ),
+                name=f"order-{order.order_id}",
+            )
+            transitions.add(task)
+            created += 1
+            if burst is not None and created >= burst:
+                break
             try:
-                await asyncio.wait_for(stop.wait(), timeout=control_poll_seconds)
+                await asyncio.wait_for(stop.wait(), timeout=delay)
             except TimeoutError:
                 continue
-            continue
 
-        with connect_factory() as conn:
-            try:
-                order = create_order(conn, reference, producer, rng)
-            except StockUnavailable:
-                log.warning("live_writer.stock_refresh")
-                reference = load_reference_data(conn)
-                continue
-        transition_rng = np.random.default_rng(int(rng.integers(0, np.iinfo(np.int64).max)))
-        task = asyncio.create_task(
-            transition_order(
-                order,
-                reference,
-                producer,
-                transition_rng,
-                cancellation_probability=cancellation_probability,
-            ),
-            name=f"order-{order.order_id}",
-        )
-        transitions.add(task)
-        created += 1
-        if burst is not None and created >= burst:
-            break
-        try:
-            await asyncio.wait_for(stop.wait(), timeout=delay)
-        except TimeoutError:
-            continue
-
-    if transitions:
-        await asyncio.gather(*transitions)
+        if transitions:
+            await asyncio.gather(*transitions)
+    finally:
+        churn_task.cancel()
+        rider_task.cancel()
+        await asyncio.gather(churn_task, rider_task, return_exceptions=True)
     return created
 
 

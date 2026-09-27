@@ -80,6 +80,46 @@ def run_silver(spark: SparkSession, root: Path | None = None) -> dict[str, dict[
     combined.write.format("delta").mode("overwrite").save(
         table_location("quarantine", "quality_summary", root)
     )
+    stats.update(_run_silver_external(spark, root))
+    return stats
+
+
+def _read_bronze_optional(spark: SparkSession, root: Path | None, table: str):
+    if get_settings().storage_backend != "s3":
+        path = table_path("bronze", table, root)
+        if not path.exists():
+            return None
+    return spark.read.format("delta").load(table_location("bronze", table, root))
+
+
+def _run_silver_external(spark: SparkSession, root: Path | None) -> dict[str, dict[str, int]]:
+    from quickcart.lakehouse.silver import external as external_silver
+
+    stats: dict[str, dict[str, int]] = {}
+    weather_bronze = _read_bronze_optional(spark, root, "bronze_weather_feed")
+    if weather_bronze is None:
+        return stats
+
+    store_weather = external_silver.silver_store_weather(weather_bronze)
+    store_weather.write.format("delta").mode("overwrite").save(
+        table_location("silver", "silver_store_weather", root)
+    )
+    stats["silver_store_weather"] = {
+        "clean_rows": store_weather.count(),
+        "quarantined_rows": 0,
+        "bronze_rows": weather_bronze.count(),
+    }
+
+    news_bronze = _read_bronze_optional(spark, root, "bronze_news_feed")
+    city_context = external_silver.silver_city_hour_context(weather_bronze, news_bronze)
+    city_context.write.format("delta").mode("overwrite").save(
+        table_location("silver", "silver_city_hour_context", root)
+    )
+    stats["silver_city_hour_context"] = {
+        "clean_rows": city_context.count(),
+        "quarantined_rows": 0,
+        "bronze_rows": weather_bronze.count(),
+    }
     return stats
 
 

@@ -16,6 +16,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { postJsonWithTimeout } from "@/components/query/query-client";
 import { ResultsTable } from "@/components/query/results-table";
 import { TemplatePicker } from "@/components/query/template-picker";
+import { classifyQuestionIntent, sqlWriteJoke } from "@/lib/sql-intent";
 import { SQL_TEMPLATES, type SqlTemplate } from "@/lib/sql-templates";
 import type { SqlExecuteResponse, SqlGenerateResponse, SqlSource } from "@/lib/types";
 
@@ -65,6 +66,11 @@ export function QueryWorkbench() {
   const [generating, setGenerating] = useState(false);
   const [generateInfo, setGenerateInfo] = useState<SqlGenerateResponse | null>(null);
   const [generateError, setGenerateError] = useState<string | null>(null);
+  const [intentBlock, setIntentBlock] = useState<{
+    reason: string;
+    joke: string | null;
+    intent: string;
+  } | null>(null);
 
   const [running, setRunning] = useState(false);
   const [runResult, setRunResult] = useState<SqlExecuteResponse | null>(null);
@@ -72,6 +78,9 @@ export function QueryWorkbench() {
 
   const templates = useMemo(() => SQL_TEMPLATES.filter((t) => t.source === source), [source]);
   const guardMessage = useMemo(() => writeGuardMessage(sql), [sql]);
+  const guardJoke = useMemo(() => (guardMessage ? sqlWriteJoke(sql) : null), [guardMessage, sql]);
+  const liveIntent = useMemo(() => classifyQuestionIntent(question), [question]);
+  const questionBlocked = question.trim().length > 0 && !liveIntent.allowed;
 
   const changeSource = (next: SqlSource) => {
     if (next === source) return;
@@ -88,14 +97,30 @@ export function QueryWorkbench() {
     setRunError(null);
     setGenerateInfo(null);
     setGenerateError(null);
+    setIntentBlock(null);
   };
 
   const generate = async () => {
     const trimmed = question.trim();
     if (!trimmed || generating) return;
+
+    const preview = classifyQuestionIntent(trimmed);
+    if (!preview.allowed) {
+      setIntentBlock({
+        reason: preview.reason,
+        joke: preview.joke,
+        intent: preview.intent,
+      });
+      setGenerateInfo(null);
+      setGenerateError(null);
+      setSql("");
+      return;
+    }
+
     setGenerating(true);
     setGenerateError(null);
     setGenerateInfo(null);
+    setIntentBlock(null);
     const result = await postJsonWithTimeout<SqlGenerateResponse>(
       "/api/v1/sql/generate",
       { question: trimmed, source },
@@ -103,8 +128,6 @@ export function QueryWorkbench() {
     );
     setGenerating(false);
     if (!result.ok) {
-      // /api/v1/sql/generate reports a degraded body with HTTP 200 even when Ollama is
-      // down — a non-2xx here means the API itself (or the route) isn't reachable.
       setGenerateError(
         result.status === 0
           ? "The API isn't reachable at all — check that it's running."
@@ -112,6 +135,21 @@ export function QueryWorkbench() {
       );
       return;
     }
+
+    if (result.data.allowed === false) {
+      setIntentBlock({
+        reason: result.data.notes[0] ?? "That question was blocked by intent guardrails.",
+        joke:
+          result.data.joke ??
+          result.data.notes.find((note) => note !== result.data.notes[0]) ??
+          null,
+        intent: result.data.intent ?? "mutate",
+      });
+      setGenerateInfo(result.data);
+      setSql("");
+      return;
+    }
+
     setSelectedTemplateId(null);
     setGenerateInfo(result.data);
     if (result.data.sql) {
@@ -152,9 +190,9 @@ export function QueryWorkbench() {
         <CardHeader className="border-b">
           <CardTitle>1. Pick a source and a question</CardTitle>
           <CardDescription>
-            Templates are plain SQL text and always work, even with the API's model offline.
-            Natural language goes through a local Ollama model and can be slow on CPU or briefly
-            unavailable — that never affects the templates below.
+            Templates are plain SQL text and always work, even with the API&apos;s model offline.
+            Natural language is intent-classified first — writes, DDL, and admin asks are refused
+            (sometimes with a joke) before any model call.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -185,16 +223,47 @@ export function QueryWorkbench() {
               <Textarea
                 id="query-question"
                 value={question}
-                onChange={(e) => setQuestion(e.target.value)}
+                onChange={(e) => {
+                  setQuestion(e.target.value);
+                  setIntentBlock(null);
+                }}
                 placeholder="e.g. Which stores have the highest late-delivery rate this week?"
                 rows={2}
+                aria-invalid={questionBlocked || undefined}
               />
+              {questionBlocked ? (
+                <p className="text-[11px] text-amber-700 dark:text-amber-400">
+                  Intent preview: <span className="font-medium">{liveIntent.intent}</span> — generation
+                  will be blocked.
+                </p>
+              ) : null}
             </div>
-            <Button onClick={() => void generate()} disabled={generating || question.trim().length === 0}>
+            <Button
+              onClick={() => void generate()}
+              disabled={generating || question.trim().length === 0 || questionBlocked}
+            >
               <Wand2 data-icon="inline-start" />
               {generating ? "Generating…" : "Generate SQL"}
             </Button>
           </div>
+
+          {intentBlock ? (
+            <div
+              role="alert"
+              className="space-y-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-3 text-sm text-amber-950 dark:text-amber-100"
+            >
+              <p className="flex items-start gap-2 font-medium">
+                <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
+                Guardrail · intent <span className="font-mono">{intentBlock.intent}</span>
+              </p>
+              <p className="text-xs leading-relaxed opacity-90">{intentBlock.reason}</p>
+              {intentBlock.joke ? (
+                <p className="border-t border-amber-500/30 pt-2 text-xs italic leading-relaxed opacity-90">
+                  {intentBlock.joke}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
 
           {generateError ? (
             <p className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
@@ -202,13 +271,16 @@ export function QueryWorkbench() {
               {generateError}
             </p>
           ) : null}
-          {generateInfo ? (
+          {generateInfo && generateInfo.allowed !== false ? (
             <div className="space-y-1.5 text-xs text-muted-foreground">
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant="secondary">
                   <Sparkles data-icon="inline-start" />
                   {generateInfo.model ?? "no local model configured"}
                 </Badge>
+                {generateInfo.intent ? (
+                  <Badge variant="outline">intent · {generateInfo.intent}</Badge>
+                ) : null}
                 {generateInfo.degraded ? (
                   <Badge variant="destructive">Ollama unavailable — heuristic fallback</Badge>
                 ) : !generateInfo.valid ? (
@@ -246,10 +318,16 @@ export function QueryWorkbench() {
             spellCheck={false}
           />
           {guardMessage ? (
-            <p className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-              <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
-              {guardMessage}
-            </p>
+            <div
+              role="alert"
+              className="space-y-1.5 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive"
+            >
+              <p className="flex items-start gap-2 font-medium">
+                <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
+                {guardMessage}
+              </p>
+              {guardJoke ? <p className="italic opacity-90">{guardJoke}</p> : null}
+            </div>
           ) : null}
           <div className="flex flex-wrap items-center gap-2">
             <Button onClick={() => void run()} disabled={running || sql.trim().length === 0 || !!guardMessage}>

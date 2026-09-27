@@ -118,6 +118,53 @@ def payment_failure_probability(method: str, attempt: int) -> float:
     return base if attempt == 1 else 0.02
 
 
+def effective_orders_per_minute(orders_per_minute: float, burst_factor: float) -> float:
+    """Operator dial: base rate scaled by burst (matches sim API impact estimate)."""
+    return max(float(orders_per_minute) * float(burst_factor), 1e-6)
+
+
+def effective_orders_per_sec(orders_per_minute: float, burst_factor: float) -> float:
+    return effective_orders_per_minute(orders_per_minute, burst_factor) / 60.0
+
+
+def order_inter_arrival_seconds(orders_per_minute: float, burst_factor: float) -> float:
+    rate = effective_orders_per_sec(orders_per_minute, burst_factor)
+    return 1.0 / rate
+
+
+def should_fail_payment(
+    rng: Generator,
+    method: str,
+    attempt: int,
+    *,
+    payment_fail_rate: float,
+) -> bool:
+    """Blend sim-control ``payment_fail_rate`` with method-specific base odds."""
+    if method == "COD":
+        return False
+    base = payment_failure_probability(method, attempt)
+    dial = max(0.0, min(1.0, float(payment_fail_rate)))
+    if attempt == 1:
+        probability = 1.0 - (1.0 - dial) * (1.0 - base)
+    else:
+        probability = base * max(0.0, 1.0 - dial * 0.85)
+    return float(rng.random()) < probability
+
+
+def should_open_ticket(rng: Generator, ticket_rate: float) -> bool:
+    rate = max(0.0, min(1.0, float(ticket_rate)))
+    return rate > 0 and float(rng.random()) < rate
+
+
+def inventory_churn_delta(rng: Generator, on_hand: int) -> int:
+    """Signed quantity change for one inventory churn tick."""
+    if on_hand <= 0:
+        return int(rng.integers(5, 16))
+    if float(rng.random()) < 0.38:
+        return -int(rng.integers(1, min(6, on_hand + 1)))
+    return int(rng.integers(1, 9))
+
+
 def basket_size(rng: Generator) -> int:
     """Number of distinct items in the basket (1..10, right-skewed)."""
     return int(min(10, 1 + rng.poisson(2.2)))

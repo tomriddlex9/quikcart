@@ -100,4 +100,7 @@ def run_bronze(spark: SparkSession, root: Path | None = None) -> dict[str, int]:
     counts = {}
     for table in SOURCE_SCHEMAS:
         counts[table] = load_bronze_table(spark, root, table)
+    from quickcart.lakehouse.bronze.external import run_bronze_external
+
+    counts.update(run_bronze_external(spark, root))
     return counts

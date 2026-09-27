@@ -187,7 +187,11 @@ export function StreamlitEmbed() {
               <p>
                 Nothing is listening at{" "}
                 <code className="text-foreground">{STREAMLIT_URL}</code>. Start
-                it with <code className="text-foreground">make dashboard-up</code>.
+                it with{" "}
+                <code className="text-foreground">
+                  uv run streamlit run dashboard/app.py
+                </code>
+                .
               </p>
             </div>
           </CardContent>

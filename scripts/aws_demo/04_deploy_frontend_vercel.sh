@@ -55,11 +55,12 @@ if [[ -n "${VERCEL_TOKEN:-}" ]]; then
   DEPLOY_ARGS+=(--token "$VERCEL_TOKEN")
 fi
 
-# Capture URL from deploy output
-URL="$(npx --yes vercel@60 "${DEPLOY_ARGS[@]}" 2>&1 | tee /tmp/qc-vercel-deploy.log | awk '/https:\/\/.*\.vercel\.app/ {print $NF}' | tail -1)"
+# Capture URL from deploy output (strip trailing JSON punctuation from CLI lines)
+URL="$(npx --yes vercel@60 "${DEPLOY_ARGS[@]}" 2>&1 | tee /tmp/qc-vercel-deploy.log | grep -Eo 'https://[A-Za-z0-9.-]+\.vercel\.app' | tail -1)"
 if [[ -z "$URL" ]]; then
-  URL="$(grep -Eo 'https://[^ ]+\.vercel\.app' /tmp/qc-vercel-deploy.log | tail -1 || true)"
+  URL="$(grep -Eo 'https://[A-Za-z0-9.-]+\.vercel\.app' /tmp/qc-vercel-deploy.log | tail -1 || true)"
 fi
+URL="${URL%%[\",]*}"
 
 echo "VERCEL_URL=${URL}"
 echo "VERCEL_URL=${URL}" >"${STATE_DIR}/.vercel.env"

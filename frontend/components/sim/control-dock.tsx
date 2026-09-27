@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { apiPostJson } from "@/lib/api";
 import { formatNumber, formatPercent } from "@/lib/format";
+import { subscribe } from "@/lib/sim-dock";
 import { DEMO_SIM_STATUS, type SimConfigPatch, type SimStatus } from "@/lib/sim-types";
 import { cn } from "@/lib/utils";
 import { useApiData } from "@/lib/use-api";
@@ -96,6 +97,8 @@ export function ControlDock() {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, []);
+
+  useEffect(() => subscribe(() => setOpen(true)), []);
 
   const applyPatch = (patch: SimConfigPatch) => {
     editingRef.current = true;

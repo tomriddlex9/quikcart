@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Command, Laptop, Moon, Settings2, Sun, TerminalSquare } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { ChevronDown, Command, Laptop, Moon, Settings2, Sun, TerminalSquare } from "lucide-react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useTheme } from "next-themes";
 import { signOut } from "@/app/login/actions";
+import { Pill } from "@/components/pill";
 import { Button } from "@/components/ui/button";
 import {
   CommandDialog,
@@ -19,7 +20,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { PrefsSheet } from "@/components/prefs-sheet";
 import { ControlDock } from "@/components/sim/control-dock";
-import { ALL_PAGES, LEARN, OPS, type NavItem } from "@/lib/nav";
+import { LEARN, OPS, type NavItem } from "@/lib/nav";
 import { usePrefs } from "@/lib/prefs";
 import { cn } from "@/lib/utils";
 
@@ -97,12 +98,15 @@ export function AppShell({ children }: { children: ReactNode }) {
           </Link>
           <Separator orientation="vertical" className="mx-1 hidden h-4 sm:block" />
           <nav
-            className="hidden min-w-0 flex-1 items-center gap-0.5 overflow-x-auto md:flex"
+            className="hidden min-w-0 flex-1 items-center gap-0.5 md:flex"
             aria-label="Primary"
           >
-            {OPS.slice(0, 6).map((item) => (
-              <TopLink key={item.href} item={item} pathname={pathname} />
-            ))}
+            <div className="flex min-w-0 items-center gap-0.5 overflow-x-auto">
+              {OPS.slice(0, 6).map((item) => (
+                <TopLink key={item.href} item={item} pathname={pathname} />
+              ))}
+            </div>
+            <OperateMoreMenu items={OPS.slice(6)} pathname={pathname} />
           </nav>
           <Button
             variant="outline"
@@ -136,7 +140,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           >
             <Settings2 className="size-3.5" />
           </Button>
-          {process.env.NEXT_PUBLIC_PUBLIC_DEMO === "1" ? null : (
+          {process.env.NEXT_PUBLIC_PUBLIC_DEMO === "1" ? (
+            <Pill tone="neutral">Public demo</Pill>
+          ) : (
             <form action={signOut}>
               <Button type="submit" variant="ghost" size="sm" className="text-muted-foreground">
                 Sign out
@@ -144,12 +150,9 @@ export function AppShell({ children }: { children: ReactNode }) {
             </form>
           )}
         </div>
-        <div className="border-t border-border/60 md:hidden">
-          <nav className="flex gap-1 overflow-x-auto px-2 py-1.5" aria-label="Mobile">
-            {ALL_PAGES.map((item) => (
-              <TopLink key={item.href} item={item} pathname={pathname} compact />
-            ))}
-          </nav>
+        <div className="flex flex-col gap-1 border-t border-border/60 px-2 py-1.5 md:hidden">
+          <MobileNavRow label="Operate" items={OPS} pathname={pathname} />
+          <MobileNavRow label="Learn" items={LEARN} pathname={pathname} />
         </div>
       </header>
 
@@ -178,8 +181,10 @@ export function AppShell({ children }: { children: ReactNode }) {
         <main
           id="main"
           className={cn(
-            "min-w-0 flex-1 px-4 py-6 md:px-8 lg:px-10",
-            prefs.density === "compact" && "px-3 py-3 md:px-5 lg:px-6",
+            "min-w-0 flex-1 pb-28",
+            prefs.density === "compact"
+              ? "px-3 pt-3 md:px-5 lg:px-6"
+              : "px-4 pt-6 md:px-8 lg:px-10",
           )}
         >
           {children}
@@ -220,6 +225,123 @@ export function AppShell({ children }: { children: ReactNode }) {
       </CommandDialog>
 
       <ControlDock />
+    </div>
+  );
+}
+
+function isNavActive(href: string, pathname: string) {
+  return href === "/" ? pathname === "/" : pathname.startsWith(href);
+}
+
+function OperateMoreMenu({ items, pathname }: { items: NavItem[]; pathname: string }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuId = useId();
+  const routeActive = items.some((item) => isNavActive(item.href, pathname));
+
+  useEffect(() => {
+    setOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+        buttonRef.current?.focus();
+      }
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  return (
+    <div ref={rootRef} className="relative shrink-0">
+      <button
+        ref={buttonRef}
+        type="button"
+        aria-expanded={open}
+        aria-haspopup="menu"
+        aria-controls={menuId}
+        onClick={() => setOpen((value) => !value)}
+        className={cn(
+          "inline-flex items-center gap-1 rounded-md px-2 py-1 text-[12px] transition-colors",
+          routeActive
+            ? "bg-secondary text-foreground"
+            : open
+              ? "bg-muted text-foreground"
+              : "text-muted-foreground hover:text-foreground",
+        )}
+      >
+        More
+        <ChevronDown
+          className={cn("size-3 transition-transform", open && "rotate-180")}
+          strokeWidth={1.75}
+        />
+      </button>
+      {open ? (
+        <div
+          id={menuId}
+          role="menu"
+          aria-label="More operate pages"
+          className="absolute left-0 top-full z-50 mt-1 min-w-44 rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-md"
+        >
+          {items.map((item) => {
+            const active = isNavActive(item.href, pathname);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                role="menuitem"
+                aria-current={active ? "page" : undefined}
+                onClick={() => setOpen(false)}
+                className={cn(
+                  "flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] transition-colors",
+                  active
+                    ? "bg-secondary text-foreground"
+                    : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
+                )}
+              >
+                <item.icon className="size-3.5 shrink-0" strokeWidth={1.75} />
+                {item.label}
+              </Link>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function MobileNavRow({
+  label,
+  items,
+  pathname,
+}: {
+  label: string;
+  items: NavItem[];
+  pathname: string;
+}) {
+  return (
+    <div className="flex min-w-0 items-center gap-1.5">
+      <span aria-hidden className="w-16 shrink-0 text-[11px] font-medium text-muted-foreground">
+        {label}
+      </span>
+      <nav aria-label={label} className="flex min-w-0 flex-1 gap-1 overflow-x-auto">
+        {items.map((item) => (
+          <TopLink key={item.href} item={item} pathname={pathname} compact />
+        ))}
+      </nav>
     </div>
   );
 }

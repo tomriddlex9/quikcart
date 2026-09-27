@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { PageHeader } from "@/components/page-header";
+import { SimStatusPanel } from "@/components/sim/sim-status-panel";
 
 export const metadata: Metadata = {
   title: "Simulator",
@@ -12,6 +13,7 @@ export default function SimPage() {
         title="Simulator"
         description="Start/stop the demo order simulator and tune its intensity from the floating control dock in the corner of every page — this page is just a reminder of what it controls."
       />
+      <SimStatusPanel />
       <div className="rounded-xl border border-border bg-secondary/25 p-6 text-sm text-muted-foreground">
         <p>
           The simulator dock (bottom-right of the screen) lets the ops team start or stop the

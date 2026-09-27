@@ -19,7 +19,7 @@ import { OrderFeed } from "@/components/live/order-feed";
 import { PipelineStrip } from "@/components/live/pipeline-strip";
 import { PageHeader } from "@/components/page-header";
 import { Pill, StatusDot, type PillTone } from "@/components/pill";
-import { EmptyState, Skeleton } from "@/components/states";
+import { EmptyState, Loading, Skeleton } from "@/components/states";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { ApiMode } from "@/lib/api";
 import { formatCompactINR, formatINR, formatNumber, formatPercent } from "@/lib/format";
@@ -287,7 +287,9 @@ function StoreGrid({ snapshot }: { snapshot: LiveSnapshot }) {
 
 export function LiveDashboard() {
   const { snapshot, pipeline, mode, error } = useLiveStream();
-  const tone = streamTone(mode);
+  const connecting = snapshot === null;
+  const headerMode = connecting ? "offline" : mode;
+  const tone = streamTone(headerMode);
 
   return (
     <>
@@ -297,21 +299,19 @@ export function LiveDashboard() {
       >
         <Pill tone={tone}>
           <StatusDot tone={tone} />
-          <span className={mode === "live" ? "live-dot" : undefined}>{streamLabel(mode)}</span>
+          <span className={headerMode === "live" ? "live-dot" : undefined}>{streamLabel(headerMode)}</span>
         </Pill>
       </PageHeader>
 
-      {mode === "stale" || mode === "demo" ? <ApiBanner mode={mode} error={error} /> : null}
+      {!connecting && (mode === "stale" || mode === "demo") ? (
+        <ApiBanner mode={mode} error={error} />
+      ) : null}
 
-      {!snapshot ? (
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, index) => (
-            <Skeleton key={index} className="h-24 rounded-xl" />
-          ))}
-        </div>
-      ) : (
+      {connecting ? (
+        <Loading label="Connecting to live stream…" />
+      ) : snapshot ? (
         <LiveMetrics snapshot={snapshot} />
-      )}
+      ) : null}
 
       <div className="mt-3">
         <PipelineStrip pipeline={pipeline} />

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { ArrowRight, CircleAlert, Search } from "lucide-react";
 import { ApiBanner } from "@/components/api-banner";
 import { Pill } from "@/components/pill";
-import { EmptyState, Skeleton } from "@/components/states";
+import { EmptyState, ErrorState, Skeleton } from "@/components/states";
 import {
   Accordion,
   AccordionContent,
@@ -35,7 +35,7 @@ import {
   StackedTabsList,
   StackedTabsTrigger,
 } from "@/components/ui/stacked-tabs";
-import { apiGetJson, type ApiMode } from "@/lib/api";
+import { apiGetJson } from "@/lib/api";
 import {
   DEMO_ANOMALIES,
   DEMO_DELIVERY_PREDICTION,
@@ -49,15 +49,20 @@ import type { AnomalyRow, DemandForecastRow, DeliveryPrediction, StoreRow } from
 
 // ---------------------------------------------------------------------------
 // Live predictions — on-demand lookups against the prediction endpoints.
-// Network failures fall back to clearly-labeled demo rows (mode "demo");
-// a 404 means the table or entity genuinely does not exist (mode "missing").
+// A 404 is a not-found message. Transport, 5xx, and other failures stay
+// errors; the demo payload loads only from the explicit "Show example" button.
 // ---------------------------------------------------------------------------
 
 type LookupState<T> =
   | { status: "idle" }
   | { status: "loading" }
-  | { status: "done"; mode: ApiMode; data: T }
-  | { status: "missing"; detail: string };
+  | { status: "done"; source: "live" | "example"; data: T }
+  | { status: "missing"; detail: string }
+  | { status: "error"; detail: string };
+
+function errorDetail(err: unknown): string {
+  return err instanceof Error ? err.message : "Request failed";
+}
 
 function isHttpError(err: unknown, status: number): boolean {
   return err instanceof Error && err.message.includes(`HTTP ${status}`);
@@ -98,7 +103,7 @@ function DeliveryLookup() {
       const data = await apiGetJson<DeliveryPrediction>(
         `/api/v1/predictions/delivery/${encodeURIComponent(orderId.trim())}`,
       );
-      setState({ status: "done", mode: "live", data });
+      setState({ status: "done", source: "live", data });
     } catch (err) {
       if (isHttpError(err, 404)) {
         setState({
@@ -106,9 +111,13 @@ function DeliveryLookup() {
           detail: `No scored row for order ${orderId.trim()} — the table may not be built, or the order sits outside the model's test window.`,
         });
       } else {
-        setState({ status: "done", mode: "demo", data: DEMO_DELIVERY_PREDICTION });
+        setState({ status: "error", detail: errorDetail(err) });
       }
     }
+  }
+
+  function showExample() {
+    setState({ status: "done", source: "example", data: DEMO_DELIVERY_PREDICTION });
   }
 
   const p = state.status === "done" ? (state.data.late_probability ?? 0) : 0;
@@ -150,11 +159,18 @@ function DeliveryLookup() {
             </p>
           ) : state.status === "missing" ? (
             <EmptyState title="No prediction on file" hint={state.detail} />
+          ) : state.status === "error" ? (
+            <div className="space-y-3">
+              <ErrorState message={state.detail} />
+              <Button type="button" variant="outline" size="sm" onClick={showExample}>
+                Show example
+              </Button>
+            </div>
           ) : state.status === "done" ? (
             <div className="space-y-3">
               <div className="flex flex-wrap items-center gap-2">
-                <Pill tone={state.mode === "live" ? "teal" : "amber"}>
-                  {state.mode === "live" ? "live · gold row" : "demo"}
+                <Pill tone={state.source === "live" ? "teal" : "amber"}>
+                  {state.source === "live" ? "live · gold row" : "example"}
                 </Pill>
                 {state.data.predicted_class !== undefined ? (
                   <Pill tone={Number(state.data.predicted_class) >= 1 ? "red" : "green"}>
@@ -202,10 +218,22 @@ function DemandLookup() {
       const data = await apiGetJson<DemandForecastRow[]>(
         `/api/v1/predictions/demand${qs ? `?${qs}` : ""}`,
       );
-      setState({ status: "done", mode: "live", data });
-    } catch {
-      setState({ status: "done", mode: "demo", data: DEMO_DEMAND_FORECASTS });
+      setState({ status: "done", source: "live", data });
+    } catch (err) {
+      if (isHttpError(err, 404)) {
+        setState({
+          status: "missing",
+          detail:
+            "No demand forecast for that filter — the table may not be built, or the store and category matched nothing.",
+        });
+      } else {
+        setState({ status: "error", detail: errorDetail(err) });
+      }
     }
+  }
+
+  function showExample() {
+    setState({ status: "done", source: "example", data: DEMO_DEMAND_FORECASTS });
   }
 
   const rows = state.status === "done" ? state.data : [];
@@ -257,6 +285,15 @@ function DemandLookup() {
               Forecasts land in <code>gold_demand_forecasts</code> after each demand-model run.
               Filter by store and category to compare expected against actual units.
             </p>
+          ) : state.status === "missing" ? (
+            <EmptyState title="No forecast on file" hint={state.detail} />
+          ) : state.status === "error" ? (
+            <div className="space-y-3">
+              <ErrorState message={state.detail} />
+              <Button type="button" variant="outline" size="sm" onClick={showExample}>
+                Show example
+              </Button>
+            </div>
           ) : state.status === "done" && rows.length === 0 ? (
             <EmptyState
               title="No forecast rows for that filter"
@@ -265,8 +302,8 @@ function DemandLookup() {
           ) : state.status === "done" ? (
             <div>
               <div className="mb-2 flex flex-wrap items-center gap-2">
-                <Pill tone={state.mode === "live" ? "teal" : "amber"}>
-                  {state.mode === "live" ? "live · gold rows" : "demo"}
+                <Pill tone={state.source === "live" ? "teal" : "amber"}>
+                  {state.source === "live" ? "live · gold rows" : "example"}
                 </Pill>
                 {version ? (
                   <span className="truncate text-xs text-muted-foreground">

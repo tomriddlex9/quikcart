@@ -5,6 +5,7 @@ import { ArrowUpRight, Radio } from "lucide-react";
 import { useEffect, useState } from "react";
 import { ApiBanner } from "@/components/api-banner";
 import { PageHeader } from "@/components/page-header";
+import { Pill } from "@/components/pill";
 import { RefreshIndicator } from "@/components/refresh-indicator";
 import { buildActivityLog } from "@/lib/activity-log";
 import { formatCompactINR, formatINR, formatNumber, formatPercent } from "@/lib/format";
@@ -32,7 +33,7 @@ import type {
   Proposal,
   StoreRow,
 } from "@/lib/types";
-import { ActivityLog } from "@/components/home/activity-log";
+import { ActivityLog, presentActivityLog } from "@/components/home/activity-log";
 import { KpiWall, type HomeKpiItem } from "@/components/home/kpi-wall";
 import {
   CancelLateDualLineChart,
@@ -41,7 +42,31 @@ import {
   OrdersGmvTrendChart,
   StoreGmvChart,
 } from "@/components/home/home-charts";
-import { TeamLensTabs, useTeamLens } from "@/components/home/team-lens";
+import { TeamLensTabs, useTeamLens, visibleFor, type TeamLens } from "@/components/home/team-lens";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+
+const ILLUSTRATIVE_KPIS: Array<{
+  id: string;
+  label: string;
+  value: string;
+  hint: string;
+  teams: TeamLens[];
+}> = [
+  {
+    id: "open_tickets",
+    label: "Open tickets",
+    value: formatNumber(DEMO_OPEN_TICKETS),
+    hint: "support queue",
+    teams: ["support", "exec"],
+  },
+  {
+    id: "forecast_mape",
+    label: "Forecast MAPE",
+    value: formatPercent(DEMO_FORECAST_MAPE),
+    hint: "demand model",
+    teams: ["ml", "data"],
+  },
+];
 
 const REFRESH_MS = 30_000;
 
@@ -175,13 +200,6 @@ export function OverviewClient() {
           teams: ["data", "exec"],
         },
         {
-          id: "open_tickets",
-          label: "Open tickets",
-          value: formatNumber(DEMO_OPEN_TICKETS),
-          hint: "illustrative",
-          teams: ["support", "exec"],
-        },
-        {
           id: "anomaly_count",
           label: "Anomalies",
           value: formatNumber((anomalies.data ?? []).length),
@@ -198,26 +216,19 @@ export function OverviewClient() {
           hint: "awaiting human approval",
           teams: ["ml", "ops", "exec"],
         },
-        {
-          id: "forecast_mape",
-          label: "Forecast MAPE",
-          value: formatPercent(DEMO_FORECAST_MAPE),
-          hint: "demand model, illustrative",
-          teams: ["ml", "data"],
-        },
       ]
     : [];
 
   const logLoading =
     live.snapshot === null && anomalies.data === null && proposals.data === null && live.pipeline === null;
   const liveLogEntries = buildActivityLog(
-    live.snapshot,
-    live.pipeline,
-    anomalies.data,
-    proposals.data,
+    live.mode === "demo" ? null : live.snapshot,
+    live.mode === "demo" ? null : live.pipeline,
+    anomalies.mode === "live" || anomalies.mode === "stale" ? anomalies.data : null,
+    proposals.mode === "live" || proposals.mode === "stale" ? proposals.data : null,
   );
-  const logEntries = liveLogEntries.length > 0 ? liveLogEntries : DEMO_ACTIVITY_LOG;
-  const logIsLive = live.mode === "live" && liveLogEntries.length > 0;
+  const activity = presentActivityLog(pageMode, live.mode, liveLogEntries, DEMO_ACTIVITY_LOG);
+  const visibleIllustrative = ILLUSTRATIVE_KPIS.filter((item) => visibleFor(team, item.teams));
 
   return (
     <>
@@ -283,6 +294,32 @@ export function OverviewClient() {
 
       <KpiWall items={kpiItems} team={team} loading={kpiLoading} />
 
+      {visibleIllustrative.length > 0 ? (
+        <section className="mt-3" aria-labelledby="illustrative-kpis">
+          <h2 id="illustrative-kpis" className="mb-2 text-sm font-medium">
+            Illustrative
+          </h2>
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+            {visibleIllustrative.map((item) => (
+              <Card key={item.id} size="sm" className="gap-1">
+                <CardHeader>
+                  <CardTitle className="flex items-center justify-between gap-2 text-xs font-normal text-muted-foreground">
+                    <span>{item.label}</span>
+                    <Pill tone="amber">illustrative</Pill>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-semibold leading-none tracking-tight tabular-nums">
+                    {item.value}
+                  </div>
+                  <div className="mt-1.5 text-xs text-muted-foreground">{item.hint}</div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-2">
         <OrdersGmvTrendChart data={trend.data} loading={trend.data === null} />
         <StoreGmvChart data={stores.data} loading={stores.data === null} />
@@ -295,7 +332,7 @@ export function OverviewClient() {
       </div>
 
       <div className="mt-3">
-        <ActivityLog entries={logEntries} loading={logLoading} live={logIsLive} />
+        <ActivityLog entries={activity.entries} loading={logLoading} source={activity.source} />
       </div>
 
       <p className="mt-4 text-xs text-muted-foreground">

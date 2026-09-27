@@ -16,6 +16,7 @@ import {
   Terminal,
 } from "lucide-react";
 import { ApiBanner } from "@/components/api-banner";
+import { Pill } from "@/components/pill";
 import { Loading } from "@/components/states";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -65,6 +66,7 @@ function formatMeasure(value: number, format: "int" | "currency" | "pct" | "floa
 export function CubeConsole() {
   const [state, setState] = useState<CubeState>(DEMO_CUBE_STATE);
   const [mode, setMode] = useState<ApiMode>("offline");
+  const [localSession, setLocalSession] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [applying, setApplying] = useState(false);
@@ -135,6 +137,7 @@ export function CubeConsole() {
         setState(result.data);
         setMode("live");
         setError(null);
+        setLocalSession(false);
       } else {
         throw new Error(result.detail);
       }
@@ -143,6 +146,7 @@ export function CubeConsole() {
         const next = applyCubeOperationLocally(request);
         setState(next);
         setMode("demo");
+        setLocalSession(op !== "reset");
         setError(
           err instanceof Error
             ? `API unavailable (${err.message}); applied locally.`
@@ -181,7 +185,10 @@ export function CubeConsole() {
 
       <Card size="sm">
         <CardHeader>
-          <CardTitle className="text-sm">{state.title}</CardTitle>
+          <CardTitle className="flex items-center gap-2 text-sm">
+            {state.title}
+            {localSession ? <Pill tone="amber">local session</Pill> : null}
+          </CardTitle>
           <CardDescription className="text-xs">
             {state.cells.length} cells across {state.dimensions.map((d) => d.name).join(" × ")}.
             Filter / slice / dice / rollup / drill / pivot / SQL — every op animates the cube and

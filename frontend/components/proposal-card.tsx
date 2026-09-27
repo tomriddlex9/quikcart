@@ -46,6 +46,7 @@ export function ProposalCard({
   const actionable = proposal.status === "PENDING";
 
   async function act(action: "approve" | "reject") {
+    if (demo) return;
     const name = approver.trim();
     if (!name) {
       setFeedback({ tone: "red", text: "Enter your name first — approvals are audited." });
@@ -93,32 +94,38 @@ export function ProposalCard({
       </div>
 
       {actionable ? (
-        <div className="mt-3 flex items-center gap-2">
-          <Input
-            value={approver}
-            onChange={(e) => setApprover(e.target.value)}
-            placeholder="approver name"
-            aria-label="Approver name"
-            className="h-7 text-sm"
-          />
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void act("approve")}
-            disabled={busy}
-            className="text-chart-2"
-          >
-            <Check strokeWidth={2} /> approve
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => void act("reject")}
-            disabled={busy}
-            className="text-destructive"
-          >
-            <CircleSlash strokeWidth={2} /> reject
-          </Button>
+        <div className="mt-3 space-y-2">
+          {demo ? (
+            <p className="text-xs text-muted-foreground">API offline — actions disabled</p>
+          ) : null}
+          <div className="flex items-center gap-2">
+            <Input
+              value={approver}
+              onChange={(e) => setApprover(e.target.value)}
+              placeholder="approver name"
+              aria-label="Approver name"
+              className="h-7 text-sm"
+              disabled={demo || busy}
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void act("approve")}
+              disabled={demo || busy}
+              className="text-chart-2"
+            >
+              <Check strokeWidth={2} /> approve
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => void act("reject")}
+              disabled={demo || busy}
+              className="text-destructive"
+            >
+              <CircleSlash strokeWidth={2} /> reject
+            </Button>
+          </div>
         </div>
       ) : null}
 

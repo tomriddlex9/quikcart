@@ -1,8 +1,9 @@
 "use client";
 
 import { ChartShell } from "@/components/charts";
-import { Pill } from "@/components/pill";
-import { Skeleton } from "@/components/states";
+import { Pill, type PillTone } from "@/components/pill";
+import { EmptyState, Skeleton } from "@/components/states";
+import type { ApiMode } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import type { ActivityLogEntry, ActivityLogLevel } from "@/lib/types";
 
@@ -12,31 +13,56 @@ const LEVEL_GLYPH: Record<ActivityLogLevel, string> = {
   error: "✕",
 };
 
+export type ActivityLogSource = "live" | "demo" | "empty";
+
+const SOURCE_PILL: Record<ActivityLogSource, { tone: PillTone; label: string }> = {
+  live: { tone: "teal", label: "live" },
+  demo: { tone: "amber", label: "demo data" },
+  empty: { tone: "neutral", label: "empty" },
+};
+
+/**
+ * Demo narrative is only for a page that never went live.
+ * A live or stale connection with nothing to merge stays empty.
+ */
+export function presentActivityLog(
+  pageMode: ApiMode,
+  liveMode: ApiMode,
+  liveEntries: ActivityLogEntry[],
+  demoEntries: ActivityLogEntry[],
+): { entries: ActivityLogEntry[]; source: ActivityLogSource } {
+  const connected = liveMode === "live" || liveMode === "stale";
+  if (liveEntries.length > 0) {
+    return { entries: liveEntries, source: "live" };
+  }
+  if (connected || pageMode !== "demo") return { entries: [], source: "empty" };
+  return { entries: demoEntries, source: "demo" };
+}
+
 export function ActivityLog({
   entries,
   loading,
-  live,
+  source,
   listClassName = "h-[280px]",
 }: {
   entries: ActivityLogEntry[];
   loading: boolean;
-  live: boolean;
+  source: ActivityLogSource;
   listClassName?: string;
 }) {
+  const pill = SOURCE_PILL[source];
   return (
     <ChartShell
       title="Activity log"
       note="live snapshot · pipeline stages · anomalies · proposals — merged, newest first"
-      right={<Pill tone={live ? "teal" : "amber"}>{live ? "live" : "demo data"}</Pill>}
+      right={
+        <Pill tone={loading ? "neutral" : pill.tone}>{loading ? "loading" : pill.label}</Pill>
+      }
     >
       {loading ? (
         <Skeleton className={`${listClassName} rounded-lg`} />
       ) : entries.length === 0 ? (
-        <div
-          className={`flex ${listClassName} items-center justify-center text-xs text-muted-foreground`}
-        >
-          No activity recorded yet.
-        </div>
+        <EmptyState className={listClassName} title="No recent activity" />
       ) : (
         <div
           className={`${listClassName} overflow-y-auto rounded-lg border border-border/60 bg-muted/20 px-3 py-2 font-mono text-[11px] leading-relaxed`}

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Check, Copy, ExternalLink } from "lucide-react";
 import { ApiBanner } from "@/components/api-banner";
-import { ActivityLog } from "@/components/home/activity-log";
+import { ActivityLog, presentActivityLog } from "@/components/home/activity-log";
 import { PipelineStrip } from "@/components/live/pipeline-strip";
 import { KpiCard } from "@/components/kpi-card";
 import { Pill, StatusDot } from "@/components/pill";
@@ -140,18 +140,17 @@ export function PipelineStatus() {
         : formatNumber(DEMO_KPIS.orders_placed);
 
   const liveLogEntries = buildActivityLog(
-    live.snapshot,
-    live.pipeline,
-    anomalies.data,
-    proposals.data,
+    live.mode === "demo" ? null : live.snapshot,
+    live.mode === "demo" ? null : live.pipeline,
+    anomalies.mode === "live" || anomalies.mode === "stale" ? anomalies.data : null,
+    proposals.mode === "live" || proposals.mode === "stale" ? proposals.data : null,
   );
-  const logEntries = liveLogEntries.length > 0 ? liveLogEntries : DEMO_ACTIVITY_LOG;
+  const activity = presentActivityLog(pageMode, live.mode, liveLogEntries, DEMO_ACTIVITY_LOG);
   const logLoading =
     live.snapshot === null &&
     anomalies.data === null &&
     proposals.data === null &&
     live.pipeline === null;
-  const logIsLive = live.mode === "live" && liveLogEntries.length > 0;
 
   const goldTables = Object.entries(data.data_root_tables ?? {});
   const phases = data.phases ?? [];
@@ -206,9 +205,9 @@ export function PipelineStatus() {
 
         <StackedTabsContent value="events">
           <ActivityLog
-            entries={logEntries}
+            entries={activity.entries}
             loading={logLoading}
-            live={logIsLive}
+            source={activity.source}
             listClassName="h-[min(480px,55vh)]"
           />
           <div className="mt-4">

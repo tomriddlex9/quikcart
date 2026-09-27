@@ -70,7 +70,7 @@ if [[ -n "$URL" ]]; then
   ORIGIN="${URL%/}"
   echo "Updating AWS API CORS to allow ${ORIGIN}"
   ssh -i "$KEY_PATH" -o StrictHostKeyChecking=accept-new ubuntu@"$PUBLIC_IP" \
-    ORIGIN="$ORIGIN" PUBLIC_IP="$PUBLIC_IP" bash <<'EOF'
+    "ORIGIN=$(printf %q "$ORIGIN") PUBLIC_IP=$(printf %q "$PUBLIC_IP") bash -s" <<'EOF'
 set -euo pipefail
 cd ~/quikcart
 touch .env.aws-demo

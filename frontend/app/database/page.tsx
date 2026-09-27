@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
-import { DatabaseExplorer } from "@/components/database/database-explorer";
+import { Suspense } from "react";
+import { DatabaseWorkbench } from "@/components/database/database-workbench";
 import { PageHeader } from "@/components/page-header";
+import { Loading } from "@/components/states";
 
 export const metadata: Metadata = {
   title: "Database",
@@ -11,9 +13,11 @@ export default function DatabasePage() {
     <>
       <PageHeader
         title="Database"
-        description="Inspect source tables and each lakehouse layer, from schema to live row previews."
+        description="Medallion catalog: schema, live previews, and the cleaning / mart SQL that produces each bronze, silver, quarantine, and gold table."
       />
-      <DatabaseExplorer />
+      <Suspense fallback={<Loading label="Loading catalog…" />}>
+        <DatabaseWorkbench />
+      </Suspense>
     </>
   );
 }

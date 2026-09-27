@@ -141,6 +141,14 @@ for part in sys.argv[1].split(","):
 print(",".join(out))
 PY
 )"
+# Preserve XAI / Grok credentials across redeploys when already present remotely
+# or exported by the operator for this run.
+EXISTING_XAI_KEY="$(grep -E '^XAI_API_KEY=' .env.aws-demo 2>/dev/null | cut -d= -f2- || true)"
+EXISTING_XAI_MODEL="$(grep -E '^XAI_MODEL=' .env.aws-demo 2>/dev/null | cut -d= -f2- || true)"
+EXISTING_XAI_BASE="$(grep -E '^XAI_BASE_URL=' .env.aws-demo 2>/dev/null | cut -d= -f2- || true)"
+XAI_API_KEY="${XAI_API_KEY:-$EXISTING_XAI_KEY}"
+XAI_MODEL="${XAI_MODEL:-${EXISTING_XAI_MODEL:-grok-3-mini}}"
+XAI_BASE_URL="${XAI_BASE_URL:-${EXISTING_XAI_BASE:-https://api.x.ai/v1}}"
 cat >.env.aws-demo <<EOF
 APP_ENV=aws-demo
 APP_HOST=0.0.0.0
@@ -151,6 +159,9 @@ QUICKCART_STORAGE_BACKEND=local
 QUICKCART_CORS_ORIGINS=${MERGED_CORS}
 OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
 OLLAMA_MODEL=${OLLAMA_MODEL}
+XAI_API_KEY=${XAI_API_KEY}
+XAI_MODEL=${XAI_MODEL}
+XAI_BASE_URL=${XAI_BASE_URL}
 MLFLOW_TRACKING_URI=file:///home/ubuntu/quikcart/data/mlruns
 NEXT_PUBLIC_API_BASE=http://${PUBLIC_IP}:8000
 NEXT_PUBLIC_STREAMLIT_URL=http://${PUBLIC_IP}:8501

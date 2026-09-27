@@ -1,9 +1,9 @@
 """POST /api/v1/sql/generate: candidate SQL only, and honest degradation.
 
-The local model is a `FakeLLM`, so these tests never touch Ollama. The contract
-being pinned: generation never executes anything, a rejected candidate is
-reported rather than hidden, and an unreachable model degrades loudly instead of
-raising.
+The model under test is a `FakeLLM`, so these tests never touch xAI/Grok. The
+contract being pinned: generation never executes anything, a rejected candidate
+is reported rather than hidden, and an unreachable model degrades loudly instead
+of raising.
 """
 
 import pytest
@@ -128,7 +128,7 @@ class TestGenerate:
         assert generated.degraded is True
         assert generated.valid is False
         assert generated.sql == "SELECT COUNT(*) AS n FROM orders LIMIT 50"
-        assert any("local model call failed" in note for note in generated.notes)
+        assert any("model call failed" in note for note in generated.notes)
 
     def test_empty_reply_is_reported_without_claiming_degradation(self) -> None:
         llm = FakeLLM("I cannot help with that.")

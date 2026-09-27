@@ -199,7 +199,7 @@ export interface SqlGenerateResponse {
   joke?: string | null;
 }
 
-export type CatalogLayer = "raw" | "bronze" | "silver" | "gold";
+export type CatalogLayer = "raw" | "bronze" | "silver" | "quarantine" | "gold";
 
 export interface CatalogTable {
   name: string;
@@ -214,10 +214,13 @@ export interface CatalogTablesResponse {
 }
 
 export interface CatalogPreviewResponse {
-  table: string;
+  name?: string;
+  table?: string;
   layer: CatalogLayer;
   columns: string[];
   rows: Array<Record<string, unknown>>;
+  row_count?: number;
+  truncated?: boolean;
 }
 
 export interface ErEdge {

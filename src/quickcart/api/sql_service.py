@@ -10,11 +10,11 @@ Two execution paths, both read-only and both bounded:
   pattern (temp views per allow-listed Delta table, a named job group, a
   wall-clock deadline, ``cancelJobGroup`` on timeout).
 
-``generate_sql`` is deliberately separate from execution: it asks the local
-Ollama model for a *candidate* statement, validates it with the same guard, and
-returns it. Nothing generated here is ever executed. When Ollama is unreachable
-the result is a loud, degraded answer (never an exception dressed up as a
-successful one).
+``generate_sql`` is deliberately separate from execution: it asks Grok (xAI) or,
+when no API key is configured, the local Ollama model for a *candidate*
+statement, validates it with the same guard, and returns it. Nothing generated
+here is ever executed. When the model is unreachable the result is a loud,
+degraded answer (never an exception dressed up as a successful one).
 """
 
 import contextlib
@@ -416,11 +416,11 @@ def generate_sql(
     llm: Any | None = None,
     notes: Sequence[str] = (),
 ) -> GeneratedSql:
-    """Ask the local model for one candidate SELECT; never execute it.
+    """Ask Grok or the local model for one candidate SELECT; never execute it.
 
-    Ollama being down is an expected local condition, not a server fault: the
-    result carries ``degraded=True`` plus notes and a heuristic statement (or
-    an empty one), so the console can still say something honest.
+    An unreachable model is an expected condition, not a server fault: the result
+    carries ``degraded=True`` plus notes and a heuristic statement (or an empty
+    one), so the console can still say something honest.
 
     Natural-language intent is classified first. Mutate / DDL / admin asks are
     refused before any model call — the UI should surface ``joke`` + ``notes``.
@@ -452,12 +452,12 @@ def generate_sql(
 
     if llm is None:
         try:
-            from quickcart.agents.llm import OllamaLLM
+            from quickcart.agents.llm import GrokLLM
 
-            llm = OllamaLLM()
-        except Exception as exc:  # model not configured / package missing
+            llm = GrokLLM()
+        except Exception as exc:  # XAI_API_KEY missing / transport misconfigured
             log.warning("sql.generate_llm_unavailable", error=str(exc))
-            collected.append(f"local model unavailable: {exc}")
+            collected.append(f"model unavailable: {exc}")
             return GeneratedSql(
                 source=source,
                 sql=heuristic_sql(question, tables),
@@ -483,7 +483,7 @@ def generate_sql(
         reply = llm.chat(messages, json_mode=True, max_tokens=GENERATE_MAX_TOKENS)
     except Exception as exc:  # LLMError and any transport failure
         log.warning("sql.generate_failed", model=model, error=str(exc))
-        collected.append(f"local model call failed: {exc}")
+        collected.append(f"model call failed: {exc}")
         return GeneratedSql(
             source=source,
             sql=heuristic_sql(question, tables),

@@ -20,9 +20,9 @@ import { classifyQuestionIntent, sqlWriteJoke } from "@/lib/sql-intent";
 import { SQL_TEMPLATES, type SqlTemplate } from "@/lib/sql-templates";
 import type { SqlExecuteResponse, SqlGenerateResponse, SqlSource } from "@/lib/types";
 
-// SQL generation runs through a local Ollama model on CPU by default — 90s gives it
-// real headroom without blocking the UI forever if it is simply unavailable.
-const GENERATE_TIMEOUT_MS = 90_000;
+// SQL generation calls xAI Grok via the API — 45s covers network + generation without
+// leaving the UI hung if the key is missing or the upstream is slow.
+const GENERATE_TIMEOUT_MS = 45_000;
 // Analytical queries (window functions, multi-way joins) run longer than a typical
 // CRUD write, but should still fail fast if the API or engine is unreachable.
 const EXECUTE_TIMEOUT_MS = 30_000;
@@ -276,13 +276,13 @@ export function QueryWorkbench() {
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant="secondary">
                   <Sparkles data-icon="inline-start" />
-                  {generateInfo.model ?? "no local model configured"}
+                  {generateInfo.model ?? "no model configured"}
                 </Badge>
                 {generateInfo.intent ? (
                   <Badge variant="outline">intent · {generateInfo.intent}</Badge>
                 ) : null}
                 {generateInfo.degraded ? (
-                  <Badge variant="destructive">Ollama unavailable — heuristic fallback</Badge>
+                  <Badge variant="destructive">Model unavailable — heuristic fallback</Badge>
                 ) : !generateInfo.valid ? (
                   <Badge variant="outline">rejected by the read-only guard — review before running</Badge>
                 ) : (

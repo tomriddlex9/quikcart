@@ -28,7 +28,13 @@ from quickcart.api.cube_api import (
     apply_cube_operation,
     build_cube_state,
 )
-from quickcart.api.layer_ops import LayerOpsError, build_layers_catalog, layer_sample
+from quickcart.api.layer_ops import (
+    LayerOpsError,
+    build_layers_catalog,
+    layer_sample,
+    operation_sample,
+    transforms_for_table,
+)
 from quickcart.api.models import (
     ApproveRequest,
     CatalogLayer,
@@ -441,6 +447,17 @@ def create_app(
             return layer_sample(layer).model_dump()
         except LayerOpsError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.get("/api/v1/layers/operations/{op_id}/sample")
+    def layers_operation_sample(op_id: str) -> dict[str, Any]:
+        try:
+            return operation_sample(op_id).model_dump()
+        except LayerOpsError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.get("/api/v1/layers/transforms/{table}")
+    def layers_transforms_for_table(table: str) -> dict[str, Any]:
+        return transforms_for_table(table)
 
     # --- cube console (offline-capable OLAP showcase) -----------------------------
     @app.get("/api/v1/cube/state")

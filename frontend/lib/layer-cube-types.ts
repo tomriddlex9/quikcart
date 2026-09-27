@@ -5,6 +5,13 @@
 
 export type MedallionLayer = "bronze" | "silver" | "gold" | "raw" | "quarantine";
 
+export type DqRule = {
+  rule_id: string;
+  severity: string;
+  sql_predicate: string;
+  message: string;
+};
+
 export type LayerOperation = {
   id: string;
   layer: MedallionLayer;
@@ -14,6 +21,7 @@ export type LayerOperation = {
   code: string;
   inputs: string[];
   outputs: string[];
+  rules?: DqRule[];
   impact: {
     rows_in: number;
     rows_out: number;
@@ -29,6 +37,7 @@ export type LayerOperation = {
 
 export type LayerSample = {
   layer: MedallionLayer;
+  op_id?: string | null;
   before: Record<string, unknown>[];
   after: Record<string, unknown>[];
   notes: string[];
@@ -111,16 +120,14 @@ export const DEMO_LAYERS_CATALOG: LayersCatalog = {
       layer: "bronze",
       name: "cdc_orders_ingest",
       engine: "cdc",
-      summary: "Debezium captures row-level changes on postgres.public.orders and lands them append-only.",
-      code: `debezium.connector(
-  table="public.orders",
-  slot="quickcart_orders_slot",
-).stream_to(
-  topic="cdc.quickcart.public.orders",
-  sink="delta:/bronze/orders_cdc",
-)`,
-      inputs: ["postgres.public.orders"],
-      outputs: ["bronze.orders_cdc"],
+      summary: "Debezium CDC from postgres.public.orders → bronze_orders_cdc (append-only).",
+      code: `-- bronze_orders_cdc ← postgres.public.orders (Debezium)
+INSERT INTO bronze_orders_cdc
+SELECT order_id, store_id, customer_id, status, total_amount, placed_at,
+       _op, _lsn, _ingested_at
+FROM cdc.quickcart.public.orders;`,
+      inputs: ["raw.orders"],
+      outputs: ["bronze.bronze_orders_cdc"],
       impact: impact({
         rows_in: 184_205,
         rows_out: 184_205,
@@ -198,25 +205,45 @@ df.write.format("delta").mode("append").save("/bronze/inventory_updates")`,
       }),
     },
     {
-      id: "silver-orders-conform",
+      id: "silver-clean-orders",
       layer: "silver",
-      name: "conform_orders",
+      name: "clean_orders",
       engine: "pyspark",
-      summary: "Type-cast, dedupe by order_id keeping latest CDC op, and drop rows missing a store_id.",
-      code: `w = Window.partitionBy("order_id").orderBy(desc("_cdc_ts_ms"))
-clean = (
-  bronze.withColumn("rn", row_number().over(w))
-  .filter(col("rn") == 1)
-  .filter(col("store_id").isNotNull())
-)
-clean.write.format("delta").mode("overwrite").save("/silver/orders")`,
-      inputs: ["bronze.orders_cdc"],
-      outputs: ["silver.orders", "quarantine.orders_missing_store"],
+      summary: "Apply DQ rules from kit/04 on bronze_orders, quarantine rejects, dedupe to silver_orders.",
+      code: `-- silver_orders ← bronze_orders  (PySpark cleaner; SQL mirror for the console)
+-- Rejects → quarantine/silver_orders_quarantine (_error_codes, _error_messages)
+SELECT *
+FROM bronze_orders
+WHERE order_id IS NOT NULL
+  AND store_id IS NOT NULL
+  AND customer_id IS NOT NULL
+  AND placed_at IS NOT NULL
+  AND total_amount >= 0
+  AND status IN ('PLACED','CONFIRMED','PICKING','OUT_FOR_DELIVERY','DELIVERED','CANCELLED')
+QUALIFY ROW_NUMBER() OVER (
+  PARTITION BY order_id
+  ORDER BY updated_at DESC
+) = 1;`,
+      inputs: ["bronze.bronze_orders"],
+      outputs: ["silver.silver_orders", "quarantine.silver_orders_quarantine"],
+      rules: [
+        { rule_id: "DQ-ORDER-001", severity: "error", sql_predicate: "order_id IS NOT NULL", message: "order_id is null" },
+        { rule_id: "DQ-ORDER-002", severity: "error", sql_predicate: "store_id IS NOT NULL", message: "store_id is null" },
+        { rule_id: "DQ-ORDER-003", severity: "error", sql_predicate: "customer_id IS NOT NULL", message: "customer_id is null" },
+        { rule_id: "DQ-ORDER-006", severity: "error", sql_predicate: "placed_at IS NOT NULL", message: "placed_at is null" },
+        { rule_id: "DQ-ORDER-004", severity: "error", sql_predicate: "total_amount >= 0", message: "total_amount is negative" },
+        {
+          rule_id: "DQ-ORDER-005",
+          severity: "error",
+          sql_predicate: "status IN ('PLACED','CONFIRMED',...)",
+          message: "status not in enum",
+        },
+      ],
       impact: impact({
         rows_in: 184_205,
         rows_out: 183_996,
         rows_quarantined: 209,
-        columns_dropped: ["_cdc_op", "_cdc_lsn"],
+        columns_added: ["_error_codes", "_error_messages", "_quarantined_at"],
         quality_lift_pct: 12.4,
         latency_ms: 5_240,
         null_rate_before: 0.031,
@@ -313,18 +340,53 @@ context = weather_h.join(news_h, how="outer").reset_index()`,
       }),
     },
     {
+      id: "gold-build-delivery_performance",
+      layer: "gold",
+      name: "build_gold_delivery_performance",
+      engine: "pyspark",
+      summary: "Daily delivery SLA and weather context per store from silver orders and deliveries.",
+      code: `-- gold_delivery_performance ← silver_orders + silver_deliveries + store weather
+SELECT
+  o.store_id,
+  CAST(o.placed_at AS date) AS day,
+  COUNT(DISTINCT d.delivery_id) AS deliveries,
+  AVG(CASE
+        WHEN d.delivered_at IS NOT NULL AND d.promised_by IS NOT NULL
+         AND d.delivered_at > d.promised_by THEN 1.0
+        ELSE 0.0
+      END) AS late_delivery_rate,
+  AVG(o.total_amount) AS avg_order_value,
+  w.weather_condition
+FROM silver_orders o
+JOIN silver_deliveries d ON d.order_id = o.order_id
+LEFT JOIN silver_store_weather w
+  ON w.store_id = o.store_id
+ AND w.weather_hour = date_trunc('hour', o.placed_at)
+GROUP BY o.store_id, CAST(o.placed_at AS date), w.weather_condition;`,
+      inputs: ["silver.silver_orders", "silver.silver_deliveries", "silver.silver_store_weather"],
+      outputs: ["gold.gold_delivery_performance"],
+      impact: impact({
+        rows_in: 183_996,
+        rows_out: 8_400,
+        quality_lift_pct: 0,
+        latency_ms: 5_200,
+        null_rate_before: 0.0,
+        null_rate_after: 0.0,
+      }),
+    },
+    {
       id: "gold-store-hourly-metrics",
       layer: "gold",
       name: "rollup_store_hourly_metrics",
       engine: "sql",
       summary: "Hourly grain rollup of orders, GMV, and late-delivery rate per store — the primary ops mart.",
-      code: `select store_id, date_trunc('hour', created_at) as hour,
-       count(*) as orders, sum(order_total) as gmv,
-       avg((is_late)::int)::double precision as late_rate
-from silver.orders o join silver.deliveries d using (order_id)
-group by 1, 2`,
-      inputs: ["silver.orders", "silver.deliveries"],
-      outputs: ["gold.store_hourly_metrics"],
+      code: `SELECT store_id, date_trunc('hour', placed_at) AS hour,
+       COUNT(*) AS orders, SUM(total_amount) AS gmv,
+       AVG(CASE WHEN is_late THEN 1.0 ELSE 0.0 END) AS late_rate
+FROM silver_orders o JOIN silver_deliveries d USING (order_id)
+GROUP BY 1, 2`,
+      inputs: ["silver.silver_orders", "silver.silver_deliveries"],
+      outputs: ["gold.gold_store_hourly_metrics"],
       impact: impact({
         rows_in: 183_996,
         rows_out: 28_940,
@@ -453,19 +515,63 @@ export const DEMO_LAYER_SAMPLES: Record<string, LayerSample> = {
     ],
     notes: ["Debezium adds change-metadata columns but never mutates the source payload."],
   },
-  "silver-orders-conform": {
+  "silver-clean-orders": {
     layer: "silver",
+    op_id: "silver-clean-orders",
     before: [
-      { order_id: 500118, customer_id: 9017, store_id: null, status: "placed", total_amount: "398.00", _cdc_op: "u", _cdc_ts_ms: 1758767990000 },
-      { order_id: 500118, customer_id: 9017, store_id: 4, status: "placed", total_amount: "398.00", _cdc_op: "u", _cdc_ts_ms: 1758768001000 },
+      {
+        order_id: 101,
+        store_id: 1,
+        customer_id: 9,
+        total_amount: -12.5,
+        status: "PLACED",
+        placed_at: "2026-09-27T10:00:00Z",
+      },
+      {
+        order_id: 102,
+        store_id: 1,
+        customer_id: 9,
+        total_amount: 420.0,
+        status: "PLACED",
+        placed_at: "2026-09-27T10:01:00Z",
+      },
     ],
     after: [
-      { order_id: 500118, customer_id: 9017, store_id: 4, order_status: "PLACED", order_total: 398.0, created_at: "2026-09-25T03:40:01Z" },
+      {
+        order_id: 102,
+        store_id: 1,
+        customer_id: 9,
+        total_amount: 420.0,
+        status: "PLACED",
+        placed_at: "2026-09-27T10:01:00Z",
+      },
     ],
     notes: [
-      "Keeps only the latest CDC event per order_id.",
-      "Row with a null store_id at the earlier timestamp is superseded, not the reason for quarantine here.",
+      "order_id=101 quarantined: DQ-ORDER-004 total_amount is negative",
+      "Survivors are deduped on order_id ORDER BY updated_at DESC",
     ],
+  },
+  "gold-build-delivery_performance": {
+    layer: "gold",
+    op_id: "gold-build-delivery_performance",
+    before: [
+      {
+        order_id: 102,
+        store_id: 1,
+        placed_at: "2026-09-27T10:01:00Z",
+        total_amount: 420.0,
+      },
+    ],
+    after: [
+      {
+        store_id: 1,
+        day: "2026-09-27",
+        deliveries: 48,
+        late_delivery_rate: 0.12,
+        weather_condition: "RAIN",
+      },
+    ],
+    notes: ["Joins silver_store_weather on store_id + hour of placed_at when present."],
   },
   "silver-inventory-validate": {
     layer: "silver",

@@ -65,21 +65,54 @@ echo "VERCEL_URL=${URL}"
 echo "VERCEL_URL=${URL}" >"${STATE_DIR}/.vercel.env"
 
 if [[ -n "$URL" ]]; then
-  # Expand CORS on the API host for the Vercel origin
+  # Expand CORS on the API host for the Vercel origin without wiping other env keys
+  # (XAI_API_KEY, custom domains, etc.).
   ORIGIN="${URL%/}"
   echo "Updating AWS API CORS to allow ${ORIGIN}"
-  ssh -i "$KEY_PATH" -o StrictHostKeyChecking=accept-new ubuntu@"$PUBLIC_IP" bash <<EOF
+  ssh -i "$KEY_PATH" -o StrictHostKeyChecking=accept-new ubuntu@"$PUBLIC_IP" \
+    ORIGIN="$ORIGIN" PUBLIC_IP="$PUBLIC_IP" bash <<'EOF'
 set -euo pipefail
 cd ~/quikcart
-mkdir -p .
-cat > .env.aws-demo <<ENV
-APP_HOST=0.0.0.0
-QUICKCART_CORS_ORIGINS=${ORIGIN},http://127.0.0.1:3000,http://localhost:3000,http://${PUBLIC_IP}:3000
-OLLAMA_MODEL=qwen2.5:1.5b
-OLLAMA_BASE_URL=http://127.0.0.1:11434
-MLFLOW_TRACKING_URI=
-ENV
-sudo systemctl restart quickcart-api || (pkill -f 'quickcart.api|uvicorn quickcart' || true; sleep 1; nohup env APP_HOST=0.0.0.0 QUICKCART_CORS_ORIGINS='${ORIGIN},http://127.0.0.1:3000,http://localhost:3000' OLLAMA_MODEL=qwen2.5:1.5b uv run python -m quickcart.api > /tmp/qc-api.log 2>&1 &)
+touch .env.aws-demo
+python3 - <<'PY'
+import os
+from pathlib import Path
+
+path = Path(".env.aws-demo")
+env: dict[str, str] = {}
+if path.exists():
+    for line in path.read_text().splitlines():
+        if not line or line.lstrip().startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        env[key] = value
+
+origin = os.environ["ORIGIN"].rstrip("/")
+public_ip = os.environ["PUBLIC_IP"]
+extra = [
+    origin,
+    "https://quikcartapp.tomriddle.in",
+    "https://quikcart.tomriddle.in",
+    "http://127.0.0.1:3000",
+    "http://localhost:3000",
+    f"http://{public_ip}:3000",
+]
+existing = [p.strip() for p in env.get("QUICKCART_CORS_ORIGINS", "").split(",") if p.strip()]
+merged: list[str] = []
+seen: set[str] = set()
+for item in existing + extra:
+    if item not in seen:
+        seen.add(item)
+        merged.append(item)
+env["QUICKCART_CORS_ORIGINS"] = ",".join(merged)
+env.setdefault("APP_HOST", "0.0.0.0")
+env.setdefault("OLLAMA_MODEL", "qwen2.5:1.5b")
+env.setdefault("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
+path.write_text("".join(f"{k}={v}\n" for k, v in env.items()))
+print("CORS=", env["QUICKCART_CORS_ORIGINS"])
+print("has_xai=", "yes" if env.get("XAI_API_KEY", "").strip() else "no")
+PY
+sudo systemctl restart quickcart-api
 sleep 2
 curl -sf http://127.0.0.1:8000/health
 echo

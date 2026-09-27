@@ -48,6 +48,11 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "qwen2.5:1.5b"
 
+    # xAI Grok (NL→SQL and other OpenAI-compatible chat calls)
+    xai_api_key: str = ""
+    xai_base_url: str = "https://api.x.ai/v1"
+    xai_model: str = "grok-3-mini"
+
     # Ordered, versioned DDL migration scripts
     migrations_dir: Path = Path("infrastructure/postgres/migrations")
 

@@ -33,8 +33,22 @@ from quickcart.lakehouse.common.paths import table_path
 log = structlog.get_logger(__name__)
 
 RAW_LAYER = "raw"
-LAKEHOUSE_LAYERS = ("bronze", "silver", "gold")
+LAKEHOUSE_LAYERS = ("bronze", "silver", "quarantine", "gold")
 CATALOG_LAYERS = (RAW_LAYER, *LAKEHOUSE_LAYERS)
+
+# Lineage / UI may say quarantine_orders; disk writes silver_orders_quarantine.
+_QUARANTINE_ALIASES: dict[str, str] = {
+    "quarantine_orders": "silver_orders_quarantine",
+    "quarantine_order_items": "silver_order_items_quarantine",
+    "quarantine_customers": "silver_customers_quarantine",
+    "quarantine_products": "silver_products_quarantine",
+    "quarantine_payments": "silver_payments_quarantine",
+    "quarantine_deliveries": "silver_deliveries_quarantine",
+    "quarantine_inventory": "silver_inventory_quarantine",
+    "quarantine_stores": "silver_stores_quarantine",
+    "quarantine_riders": "silver_riders_quarantine",
+    "quarantine_inventory_movements": "silver_inventory_movements_quarantine",
+}
 PREVIEW_ROW_CAP = 500
 
 # Delta table directory names are produced by our own pipelines; the pattern
@@ -92,6 +106,13 @@ def validate_layer(layer: str) -> str:
     return layer
 
 
+def resolve_table_name(layer: str, name: str) -> str:
+    """Map UI / lineage aliases onto on-disk Delta directory names."""
+    if layer == "quarantine":
+        return _QUARANTINE_ALIASES.get(name, name)
+    return name
+
+
 def validate_table_name(layer: str, name: str) -> str:
     """Resolve a table name for ``layer`` against an allow-list/name pattern."""
     if layer == RAW_LAYER:
@@ -100,9 +121,10 @@ def validate_table_name(layer: str, name: str) -> str:
                 404, f"table {name!r} is not on the operational allow-list"
             )
         return name
-    if not _TABLE_NAME_RE.match(name):
+    resolved = resolve_table_name(layer, name)
+    if not _TABLE_NAME_RE.match(resolved):
         raise CatalogError(400, f"invalid table name {name!r}")
-    return name
+    return resolved
 
 
 # --------------------------------------------------------------------------- #

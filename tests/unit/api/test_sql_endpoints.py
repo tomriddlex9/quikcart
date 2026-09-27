@@ -172,7 +172,7 @@ class TestSqlGenerate:
         body = response.json()
         assert body["degraded"] is True
         assert body["valid"] is False
-        assert any("local model call failed" in note for note in body["notes"])
+        assert any("model call failed" in note for note in body["notes"])
 
 
 class TestCatalog:

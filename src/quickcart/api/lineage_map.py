@@ -56,11 +56,16 @@ _BRONZE = {
 }
 
 _SILVER = {
+    "silver_stores": ["store_id", "store_code", "city", "is_active"],
     "silver_orders": ["order_id", "store_id", "status", "total_amount", "placed_at"],
+    "silver_order_items": ["order_item_id", "order_id", "product_id", "quantity", "line_total"],
     "silver_customers": ["customer_id", "customer_code", "is_active"],
     "silver_products": ["product_id", "sku", "category"],
-    "silver_inventory": ["store_id", "product_id", "on_hand_qty"],
+    "silver_payments": ["payment_id", "order_id", "amount", "status", "method"],
+    "silver_inventory": ["store_id", "product_id", "on_hand_qty", "reserved_qty"],
+    "silver_inventory_movements": ["movement_id", "store_id", "product_id", "quantity_delta"],
     "silver_deliveries": ["delivery_id", "order_id", "promised_by", "delivered_at"],
+    "silver_riders": ["rider_id", "home_store_id", "status"],
     "silver_city_hour_context": ["city", "hour", "temp_c", "precip_mm", "news_volume"],
     "silver_store_weather": ["store_id", "weather_hour", "weather_condition", "temp_c"],
     "silver_rider_locations": ["rider_id", "hour_window", "lat", "lng"],
@@ -68,7 +73,50 @@ _SILVER = {
 }
 
 _QUARANTINE = {
-    "quarantine_orders": ["order_id", "_reject_reason", "_ingestion_date"],
+    "silver_orders_quarantine": [
+        "order_id",
+        "_error_codes",
+        "_error_messages",
+        "_quarantined_at",
+    ],
+    "silver_order_items_quarantine": [
+        "order_item_id",
+        "_error_codes",
+        "_error_messages",
+        "_quarantined_at",
+    ],
+    "silver_payments_quarantine": [
+        "payment_id",
+        "_error_codes",
+        "_error_messages",
+        "_quarantined_at",
+    ],
+    "silver_deliveries_quarantine": [
+        "delivery_id",
+        "_error_codes",
+        "_error_messages",
+        "_quarantined_at",
+    ],
+    "silver_inventory_quarantine": [
+        "store_id",
+        "product_id",
+        "_error_codes",
+        "_error_messages",
+        "_quarantined_at",
+    ],
+    "silver_customers_quarantine": [
+        "customer_id",
+        "_error_codes",
+        "_error_messages",
+        "_quarantined_at",
+    ],
+    "silver_products_quarantine": [
+        "product_id",
+        "_error_codes",
+        "_error_messages",
+        "_quarantined_at",
+    ],
+    "quality_summary": ["table_name", "rule_id", "triggered_rows", "run_at"],
     "quarantine_bronze_order_events_malformed": ["_json", "_topic", "_offset"],
 }
 
@@ -106,12 +154,23 @@ _EDGES: list[tuple[str, str, str]] = [
     ("bronze.bronze_order_events", "bronze.bronze_order_events", "stream"),
     # bronze → silver / quarantine
     ("bronze.bronze_orders", "silver.silver_orders", "batch"),
-    ("bronze.bronze_orders", "quarantine.quarantine_orders", "batch"),
+    ("bronze.bronze_orders", "quarantine.silver_orders_quarantine", "batch"),
     ("bronze.bronze_customers", "silver.silver_customers", "batch"),
+    ("bronze.bronze_customers", "quarantine.silver_customers_quarantine", "batch"),
     ("bronze.bronze_products", "silver.silver_products", "batch"),
+    ("bronze.bronze_products", "quarantine.silver_products_quarantine", "batch"),
     ("bronze.bronze_inventory", "silver.silver_inventory", "batch"),
+    ("bronze.bronze_inventory", "quarantine.silver_inventory_quarantine", "batch"),
     ("bronze.bronze_deliveries", "silver.silver_deliveries", "batch"),
+    ("bronze.bronze_deliveries", "quarantine.silver_deliveries_quarantine", "batch"),
+    ("bronze.bronze_payments_cdc", "silver.silver_payments", "cdc"),
+    ("bronze.bronze_payments_cdc", "quarantine.silver_payments_quarantine", "cdc"),
+    ("bronze.bronze_order_items_cdc", "silver.silver_order_items", "cdc"),
+    ("bronze.bronze_order_items_cdc", "quarantine.silver_order_items_quarantine", "cdc"),
     ("bronze.bronze_orders_cdc", "silver.silver_orders", "cdc"),
+    ("bronze.bronze_weather_feed", "silver.silver_store_weather", "batch"),
+    ("bronze.bronze_news_feed", "silver.silver_city_hour_context", "batch"),
+    ("bronze.bronze_traffic_feed", "silver.silver_city_hour_context", "batch"),
     ("bronze.bronze_order_events", "quarantine.quarantine_bronze_order_events_malformed", "stream"),
     # silver → gold
     ("silver.silver_orders", "gold.gold_store_hourly_metrics", "batch"),

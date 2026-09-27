@@ -62,6 +62,7 @@ def test_layers_routes_are_registered_on_the_app() -> None:
         operations_response = client.get("/api/v1/layers/operations")
         sample_response = client.get("/api/v1/layers/sample/bronze")
         missing_response = client.get("/api/v1/layers/sample/platinum")
+        transforms_response = client.get("/api/v1/layers/transforms/silver_orders")
 
     assert operations_response.status_code == 200
     body = operations_response.json()
@@ -72,3 +73,9 @@ def test_layers_routes_are_registered_on_the_app() -> None:
     assert sample_response.json()["layer"] == "bronze"
 
     assert missing_response.status_code == 404
+
+    assert transforms_response.status_code == 200
+    transforms = transforms_response.json()
+    assert transforms["table"] == "silver_orders"
+    assert isinstance(transforms["operations"], list)
+    assert transforms["operations"], "silver_orders should have at least one transform"

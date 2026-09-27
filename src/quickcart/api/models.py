@@ -18,7 +18,7 @@ ProposalType = Literal["RESTOCK", "INCIDENT", "OPS_NOTIFICATION"]
 ProposalStatus = Literal["PENDING", "APPROVED", "REJECTED", "EXECUTED", "FAILED"]
 ValidationStatus = Literal["PENDING", "VALID", "INVALID"]
 SqlSource = Literal["postgres", "lakehouse"]
-CatalogLayer = Literal["raw", "bronze", "silver", "gold"]
+CatalogLayer = Literal["raw", "bronze", "silver", "quarantine", "gold"]
 
 
 class ChatRequest(BaseModel):

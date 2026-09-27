@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
+  ArrowRight,
   Boxes,
   Braces,
   ChevronRight,
   Clock,
-  Database,
   GitBranch,
   ShieldAlert,
   Sparkles,
@@ -17,6 +18,12 @@ import { Loading } from "@/components/states";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
+  StackedTabs,
+  StackedTabsContent,
+  StackedTabsList,
+  StackedTabsTrigger,
+} from "@/components/ui/stacked-tabs";
+import {
   Table,
   TableBody,
   TableCell,
@@ -24,7 +31,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatNumber } from "@/lib/format";
 import {
   DEMO_LAYER_SAMPLES,
@@ -37,7 +43,11 @@ import {
 import { useApiData } from "@/lib/use-api";
 
 const LAYER_ORDER: MedallionLayer[] = ["raw", "bronze", "silver", "quarantine", "gold"];
-const LAYER_LABELS: Record<MedallionLayer, string> = {
+const FILTER_LAYERS = ["all", "bronze", "silver", "quarantine", "gold"] as const;
+type LayerFilter = (typeof FILTER_LAYERS)[number];
+
+const LAYER_LABELS: Record<MedallionLayer | "all", string> = {
+  all: "All",
   raw: "Raw",
   bronze: "Bronze",
   silver: "Silver",
@@ -59,6 +69,40 @@ const ENGINE_LABEL: Record<LayerOperation["engine"], string> = {
   stream: "Stream",
   ml: "ML",
 };
+
+function emptyOpsMessage(layer: LayerFilter): string {
+  switch (layer) {
+    case "all":
+      return "No transform operations are registered in the catalog.";
+    case "bronze":
+      return "No bronze ingest operations in this catalog snapshot.";
+    case "silver":
+      return "No silver cleaning or conformation ops are defined yet.";
+    case "quarantine":
+      return "No quarantine retention ops — rejects would have nowhere auditable to land.";
+    case "gold":
+      return "No gold mart or feature-build operations are published yet.";
+    default:
+      return "No operations for this layer.";
+  }
+}
+
+function emptySampleMessage(layer: MedallionLayer): string {
+  switch (layer) {
+    case "raw":
+      return "Raw is the operational source; there is no upstream transform to sample.";
+    case "bronze":
+      return "No curated before/after rows for this bronze operation yet.";
+    case "silver":
+      return "No silver sample rows — open Transform SQL for the cleaner query.";
+    case "quarantine":
+      return "Quarantine samples show rejected rows once a silver cleaner runs.";
+    case "gold":
+      return "No gold sample rows — mart output appears after the build job runs.";
+    default:
+      return "No sample rows for this layer.";
+  }
+}
 
 function Medallion({ activeLayer }: { activeLayer: MedallionLayer | "all" }) {
   return (
@@ -155,6 +199,24 @@ function ImpactMeters({ op }: { op: LayerOperation }) {
   );
 }
 
+function IoChips({ inputs, outputs }: { inputs: string[]; outputs: string[] }) {
+  return (
+    <span className="flex min-w-0 flex-wrap items-center gap-1">
+      {inputs.map((input) => (
+        <Badge key={`in-${input}`} variant="outline" className="max-w-[9rem] truncate font-mono text-[10px]">
+          {input}
+        </Badge>
+      ))}
+      <ArrowRight className="size-3 shrink-0 text-muted-foreground" strokeWidth={1.75} aria-hidden />
+      {outputs.map((output) => (
+        <Badge key={`out-${output}`} variant="secondary" className="max-w-[9rem] truncate font-mono text-[10px]">
+          {output}
+        </Badge>
+      ))}
+    </span>
+  );
+}
+
 function OperationRow({
   op,
   active,
@@ -164,39 +226,53 @@ function OperationRow({
   active: boolean;
   onSelect: () => void;
 }) {
+  const ruleCount = op.rules?.length ?? 0;
   return (
     <button
       type="button"
       onClick={onSelect}
       className={
-        "flex w-full items-center justify-between gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors " +
+        "flex w-full flex-col gap-2 rounded-lg border px-3 py-2.5 text-left transition-colors " +
         (active
           ? "border-chart-2/50 bg-chart-2/8"
           : "border-border bg-card hover:bg-muted/50")
       }
     >
-      <span className="flex min-w-0 flex-1 flex-col gap-1">
-        <span className="flex flex-wrap items-center gap-2">
+      <span className="flex items-center justify-between gap-2">
+        <span className="flex min-w-0 flex-wrap items-center gap-2">
           <code className="truncate text-xs font-medium">{op.name}</code>
           <Badge variant="outline" className="text-[10px]">
             {ENGINE_LABEL[op.engine]}
           </Badge>
+          {ruleCount > 0 ? (
+            <Badge variant="outline" className="gap-1 text-[10px]">
+              <ShieldAlert className="size-2.5" strokeWidth={1.75} />
+              {ruleCount} {ruleCount === 1 ? "rule" : "rules"}
+            </Badge>
+          ) : null}
         </span>
-        <span className="truncate text-xs text-muted-foreground">{op.summary}</span>
+        <span className="shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+          {formatNumber(op.impact.rows_out)}
+          <span className="ml-1 text-[10px]">rows</span>
+        </span>
       </span>
-      <span className="shrink-0 text-right text-xs tabular-nums text-muted-foreground">
-        {formatNumber(op.impact.rows_out)}
-        <span className="ml-1 text-[10px]">rows</span>
-      </span>
+      <span className="truncate text-xs text-muted-foreground">{op.summary}</span>
+      <IoChips inputs={op.inputs} outputs={op.outputs} />
     </button>
   );
 }
 
-function SampleTable({ rows, title }: { rows: Record<string, unknown>[]; title: string }) {
+function SampleTable({
+  rows,
+  layer,
+}: {
+  rows: Record<string, unknown>[];
+  layer: MedallionLayer;
+}) {
   if (rows.length === 0) {
     return (
-      <div className="grid h-16 place-items-center text-xs text-muted-foreground">
-        No {title.toLowerCase()} rows for this layer.
+      <div className="grid h-16 place-items-center px-3 text-center text-xs text-muted-foreground">
+        {emptySampleMessage(layer)}
       </div>
     );
   }
@@ -243,7 +319,7 @@ function BeforeAfter({ sample }: { sample: LayerSample }) {
             BEFORE
           </div>
           <Card size="sm" className="overflow-hidden">
-            <SampleTable rows={sample.before} title="before" />
+            <SampleTable rows={sample.before} layer={sample.layer} />
           </Card>
         </div>
         <div>
@@ -252,7 +328,7 @@ function BeforeAfter({ sample }: { sample: LayerSample }) {
             AFTER
           </div>
           <Card size="sm" className="overflow-hidden border-chart-2/30">
-            <SampleTable rows={sample.after} title="after" />
+            <SampleTable rows={sample.after} layer={sample.layer} />
           </Card>
         </div>
       </div>
@@ -270,17 +346,135 @@ function BeforeAfter({ sample }: { sample: LayerSample }) {
   );
 }
 
+function RulesTable({ op }: { op: LayerOperation }) {
+  const rules = op.rules ?? [];
+  if (rules.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        No DQ predicates are attached to this operation — it may be ingest-only or a mart build.
+      </p>
+    );
+  }
+  return (
+    <div className="overflow-x-auto rounded-lg border border-border">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead className="font-mono text-[10px]">Rule</TableHead>
+            <TableHead className="font-mono text-[10px]">Severity</TableHead>
+            <TableHead className="font-mono text-[10px]">SQL predicate</TableHead>
+            <TableHead className="font-mono text-[10px]">Message</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rules.map((rule) => (
+            <TableRow key={rule.rule_id}>
+              <TableCell className="whitespace-nowrap font-mono text-[11px]">{rule.rule_id}</TableCell>
+              <TableCell className="text-[11px] capitalize">{rule.severity}</TableCell>
+              <TableCell className="max-w-md font-mono text-[11px]">{rule.sql_predicate}</TableCell>
+              <TableCell className="text-[11px] text-muted-foreground">{rule.message}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
+function OperationDetail({ op, sample, isLive }: { op: LayerOperation; sample: LayerSample; isLive: boolean }) {
+  return (
+    <StackedTabs defaultValue="pipeline" className="min-w-0">
+      <StackedTabsList aria-label="Operation detail">
+        <StackedTabsTrigger value="pipeline">Pipeline</StackedTabsTrigger>
+        <StackedTabsTrigger value="sql">Transform SQL</StackedTabsTrigger>
+        <StackedTabsTrigger value="rules">
+          Rules / DQ{op.rules?.length ? ` (${op.rules.length})` : ""}
+        </StackedTabsTrigger>
+        <StackedTabsTrigger value="sample">Before → After</StackedTabsTrigger>
+      </StackedTabsList>
+
+      <StackedTabsContent value="pipeline">
+        <div className="space-y-4">
+          <div>
+            <p className="mb-2 text-xs text-muted-foreground">{op.summary}</p>
+            <IoChips inputs={op.inputs} outputs={op.outputs} />
+          </div>
+          <ImpactMeters op={op} />
+          {op.impact.rows_quarantined > 0 ? (
+            <p className="flex items-start gap-1.5 rounded-lg border border-destructive/25 bg-destructive/5 px-3 py-2 text-xs text-muted-foreground">
+              <ShieldAlert className="mt-0.5 size-3.5 shrink-0 text-destructive" strokeWidth={1.75} />
+              {formatNumber(op.impact.rows_quarantined)} rows were rejected into quarantine, not silently
+              dropped.
+            </p>
+          ) : null}
+          {(op.impact.columns_added.length > 0 || op.impact.columns_dropped.length > 0) && (
+            <div className="flex flex-wrap gap-1.5 text-[11px]">
+              {op.impact.columns_added.map((c) => (
+                <Badge key={`add-${c}`} variant="secondary" className="gap-1">
+                  <Braces className="size-2.5" /> +{c}
+                </Badge>
+              ))}
+              {op.impact.columns_dropped.map((c) => (
+                <Badge key={`drop-${c}`} variant="outline" className="gap-1">
+                  <Braces className="size-2.5" /> -{c}
+                </Badge>
+              ))}
+            </div>
+          )}
+          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <Clock className="size-3" strokeWidth={1.75} />
+            {op.impact.latency_ms}ms per run
+            {isLive ? (
+              <Badge variant="outline" className="ml-2 text-[10px]">
+                live catalog
+              </Badge>
+            ) : null}
+          </div>
+        </div>
+      </StackedTabsContent>
+
+      <StackedTabsContent value="sql">
+        <pre className="max-h-[28rem] overflow-auto rounded-lg border border-border bg-muted/40 p-3 text-[11px] leading-relaxed">
+          <code>{op.code}</code>
+        </pre>
+      </StackedTabsContent>
+
+      <StackedTabsContent value="rules">
+        <RulesTable op={op} />
+      </StackedTabsContent>
+
+      <StackedTabsContent value="sample">
+        <BeforeAfter sample={sample} />
+      </StackedTabsContent>
+    </StackedTabs>
+  );
+}
+
 export function LayersWorkbench() {
+  const searchParams = useSearchParams();
+  const deepLinkOp = searchParams.get("op");
+
   const catalogState = useApiData<LayersCatalog>(
     "/api/v1/layers/operations",
     DEMO_LAYERS_CATALOG,
     60_000,
   );
   const catalog = catalogState.data ?? DEMO_LAYERS_CATALOG;
-  const demo = catalogState.mode !== "live";
+  const isLive = catalogState.mode === "live";
+  const showBanner = catalogState.mode !== "live";
 
-  const [activeLayer, setActiveLayer] = useState<MedallionLayer | "all">("bronze");
+  const [activeLayer, setActiveLayer] = useState<LayerFilter>("bronze");
   const [selectedOpId, setSelectedOpId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!deepLinkOp) return;
+    const match = catalog.operations.find((op) => op.id === deepLinkOp);
+    if (!match) return;
+    if (match.layer !== "raw") {
+      setActiveLayer(match.layer);
+    }
+    setSelectedOpId(match.id);
+  }, [deepLinkOp, catalog.operations]);
 
   const opsForLayer = useMemo(
     () =>
@@ -293,20 +487,48 @@ export function LayersWorkbench() {
   const selectedOp =
     catalog.operations.find((op) => op.id === selectedOpId) ?? opsForLayer[0] ?? null;
 
-  const sampleLayer = selectedOp?.layer === "raw" ? "raw" : selectedOp?.layer ?? "bronze";
+  const demoSampleFallback: LayerSample = selectedOp
+    ? (DEMO_LAYER_SAMPLES[selectedOp.id] ?? {
+        layer: selectedOp.layer,
+        op_id: selectedOp.id,
+        before: [],
+        after: [],
+        notes: [],
+      })
+    : { layer: "bronze", before: [], after: [], notes: [] };
+
   const sampleState = useApiData<LayerSample>(
-    selectedOp ? `/api/v1/layers/sample/${sampleLayer}` : null,
-    DEMO_LAYER_SAMPLES[selectedOp?.id ?? ""] ?? {
-      layer: sampleLayer,
-      before: [],
-      after: [],
-      notes: [],
-    },
+    selectedOp ? `/api/v1/layers/operations/${selectedOp.id}/sample` : null,
+    demoSampleFallback,
     0,
   );
-  const sample =
-    DEMO_LAYER_SAMPLES[selectedOp?.id ?? ""] ??
-    sampleState.data ?? { layer: sampleLayer, before: [], after: [], notes: [] };
+
+  const sample: LayerSample = useMemo(() => {
+    if (!selectedOp) {
+      return { layer: "bronze", before: [], after: [], notes: [] };
+    }
+    if (isLive) {
+      return (
+        sampleState.data ?? {
+          layer: selectedOp.layer,
+          op_id: selectedOp.id,
+          before: [],
+          after: [],
+          notes: [],
+        }
+      );
+    }
+    return (
+      DEMO_LAYER_SAMPLES[selectedOp.id] ??
+      sampleState.data ?? {
+        layer: selectedOp.layer,
+        op_id: selectedOp.id,
+        before: [],
+        after: [],
+        notes: [],
+      }
+    );
+  }, [isLive, sampleState.data, selectedOp]);
 
   if (catalogState.data === null) {
     return <Loading label="Loading layer operations…" />;
@@ -314,7 +536,7 @@ export function LayersWorkbench() {
 
   return (
     <div className="space-y-4">
-      {demo ? <ApiBanner mode={catalogState.mode} error={catalogState.error} /> : null}
+      {showBanner ? <ApiBanner mode={catalogState.mode} error={catalogState.error} /> : null}
 
       <Card size="sm">
         <CardHeader>
@@ -326,7 +548,7 @@ export function LayersWorkbench() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Medallion activeLayer={activeLayer} />
+          <Medallion activeLayer={activeLayer === "all" ? "bronze" : activeLayer} />
         </CardContent>
       </Card>
 
@@ -338,7 +560,11 @@ export function LayersWorkbench() {
             <button
               key={layer}
               type="button"
-              onClick={() => setActiveLayer(layer)}
+              onClick={() => {
+                if (layer === "raw") return;
+                setActiveLayer(layer);
+                setSelectedOpId(null);
+              }}
               className={
                 "rounded-xl border px-3 py-2.5 text-left transition-colors " +
                 (activeLayer === layer
@@ -366,120 +592,72 @@ export function LayersWorkbench() {
         <CardHeader className="border-b">
           <CardTitle className="flex items-center gap-2">
             <Boxes className="size-4 text-muted-foreground" strokeWidth={1.75} />
-            Operations
+            Transform catalog
           </CardTitle>
           <CardDescription>
-            Every operation that moves a row through the medallion, with the code that runs it.
+            Operations from the lakehouse transform catalog — SQL mirrors, DQ rules, and row impact.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <Tabs
+        <CardContent className="pt-4">
+          <StackedTabs
             value={activeLayer}
             onValueChange={(value) => {
-              setActiveLayer(value as MedallionLayer | "all");
+              if (!FILTER_LAYERS.includes(value as LayerFilter)) return;
+              setActiveLayer(value as LayerFilter);
               setSelectedOpId(null);
             }}
+            className="min-w-0"
           >
-            <TabsList variant="line" aria-label="Medallion layer">
-              <TabsTrigger value="all">All</TabsTrigger>
-              {LAYER_ORDER.filter((l) => l !== "raw").map((layer) => (
-                <TabsTrigger key={layer} value={layer}>
+            <StackedTabsList aria-label="Medallion layer">
+              {FILTER_LAYERS.map((layer) => (
+                <StackedTabsTrigger key={layer} value={layer}>
                   {LAYER_LABELS[layer]}
-                </TabsTrigger>
+                  {layer !== "all" ? (
+                    <span className="ml-auto font-mono text-[10px] tabular-nums text-muted-foreground">
+                      {catalog.layer_summaries[layer]?.ops ?? 0}
+                    </span>
+                  ) : (
+                    <span className="ml-auto font-mono text-[10px] tabular-nums text-muted-foreground">
+                      {catalog.operations.length}
+                    </span>
+                  )}
+                </StackedTabsTrigger>
               ))}
-            </TabsList>
-          </Tabs>
+            </StackedTabsList>
 
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
-            <div className="space-y-2">
-              {opsForLayer.length === 0 ? (
-                <div className="grid h-32 place-items-center rounded-lg border border-dashed border-border text-sm text-muted-foreground">
-                  No operations run directly on raw data.
-                </div>
-              ) : (
-                opsForLayer.map((op) => (
-                  <OperationRow
-                    key={op.id}
-                    op={op}
-                    active={selectedOp?.id === op.id}
-                    onSelect={() => setSelectedOpId(op.id)}
-                  />
-                ))
-              )}
-            </div>
-
-            <div className="min-w-0 space-y-4">
-              {selectedOp ? (
-                <>
-                  <div>
-                    <div className="mb-2 flex flex-wrap items-center gap-2">
-                      <Database className="size-3.5 text-muted-foreground" strokeWidth={1.75} />
-                      <span className="text-xs text-muted-foreground">
-                        {selectedOp.inputs.join(", ")}
-                      </span>
-                      <ChevronRight className="size-3 text-muted-foreground" />
-                      <span className="text-xs font-medium">{selectedOp.outputs.join(", ")}</span>
+            <StackedTabsContent value={activeLayer}>
+              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
+                <div className="space-y-2">
+                  {opsForLayer.length === 0 ? (
+                    <div className="grid h-32 place-items-center rounded-lg border border-dashed border-border px-4 text-center text-sm text-muted-foreground">
+                      {emptyOpsMessage(activeLayer)}
                     </div>
-                    <pre className="max-h-56 overflow-auto rounded-lg border border-border bg-muted/40 p-3 text-[11px] leading-relaxed">
-                      <code>{selectedOp.code}</code>
-                    </pre>
-                  </div>
+                  ) : (
+                    opsForLayer.map((op) => (
+                      <OperationRow
+                        key={op.id}
+                        op={op}
+                        active={selectedOp?.id === op.id}
+                        onSelect={() => setSelectedOpId(op.id)}
+                      />
+                    ))
+                  )}
+                </div>
 
-                  <ImpactMeters op={selectedOp} />
-
-                  {selectedOp.impact.rows_quarantined > 0 ? (
-                    <p className="flex items-start gap-1.5 rounded-lg border border-destructive/25 bg-destructive/5 px-3 py-2 text-xs text-muted-foreground">
-                      <ShieldAlert className="mt-0.5 size-3.5 shrink-0 text-destructive" strokeWidth={1.75} />
-                      {formatNumber(selectedOp.impact.rows_quarantined)} rows were rejected into
-                      quarantine, not silently dropped.
-                    </p>
-                  ) : null}
-
-                  {(selectedOp.impact.columns_added.length > 0 ||
-                    selectedOp.impact.columns_dropped.length > 0) && (
-                    <div className="flex flex-wrap gap-1.5 text-[11px]">
-                      {selectedOp.impact.columns_added.map((c) => (
-                        <Badge key={`add-${c}`} variant="secondary" className="gap-1">
-                          <Braces className="size-2.5" /> +{c}
-                        </Badge>
-                      ))}
-                      {selectedOp.impact.columns_dropped.map((c) => (
-                        <Badge key={`drop-${c}`} variant="outline" className="gap-1">
-                          <Braces className="size-2.5" /> -{c}
-                        </Badge>
-                      ))}
+                <div className="min-w-0">
+                  {selectedOp ? (
+                    <OperationDetail op={selectedOp} sample={sample} isLive={isLive} />
+                  ) : (
+                    <div className="grid h-32 place-items-center text-sm text-muted-foreground">
+                      Select an operation to inspect pipeline, SQL, rules, and samples.
                     </div>
                   )}
-
-                  <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                    <Clock className="size-3" strokeWidth={1.75} />
-                    {selectedOp.impact.latency_ms}ms per run
-                  </div>
-                </>
-              ) : (
-                <div className="grid h-32 place-items-center text-sm text-muted-foreground">
-                  Select an operation to inspect it.
                 </div>
-              )}
-            </div>
-          </div>
+              </div>
+            </StackedTabsContent>
+          </StackedTabs>
         </CardContent>
       </Card>
-
-      {selectedOp ? (
-        <Card>
-          <CardHeader className="border-b">
-            <CardTitle>Before / after sample</CardTitle>
-            <CardDescription>
-              A representative row from {selectedOp.inputs[0] ?? "the source"} before and after{" "}
-              <code className="text-xs">{selectedOp.name}</code> runs.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <BeforeAfter sample={sample} />
-          </CardContent>
-        </Card>
-      ) : null}
     </div>
   );
 }

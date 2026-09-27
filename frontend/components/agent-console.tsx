@@ -41,6 +41,7 @@ export function AgentConsole() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [chatHealth, setChatHealth] = useState<"idle" | "live" | "down">("idle");
   const [sessionId] = useState(() => `console-${Math.random().toString(36).slice(2, 10)}`);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -63,6 +64,7 @@ export function AgentConsole() {
     });
     setSending(false);
     if (!result.ok) {
+      setChatHealth("down");
       const unavailable = result.status === 503 || result.status === 404 || result.status === 0;
       setMessages((prev) => [
         ...prev,
@@ -76,6 +78,7 @@ export function AgentConsole() {
         },
       ]);
     } else {
+      setChatHealth("live");
       setMessages((prev) => [
         ...prev,
         {
@@ -96,6 +99,9 @@ export function AgentConsole() {
   }, [messages, sending]);
 
   const demo = proposals.mode !== "live";
+  const proposalsLabel =
+    proposals.mode === "live" ? "live" : proposals.mode === "stale" ? "stale" : "demo";
+  const chatLabel = chatHealth === "down" ? "unavailable" : chatHealth === "live" ? "live" : "idle";
 
   return (
     <>
@@ -104,15 +110,19 @@ export function AgentConsole() {
         description="A bounded assistant over Gold marts, ML predictions and SOP documents. It proposes changes; it never writes."
       />
 
-      {demo ? <ApiBanner mode={proposals.mode} error={proposals.error} /> : null}
-
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
         <div className="xl:col-span-2">
           <Card size="sm" className="flex h-[560px] flex-col gap-0 py-0">
             <div className="flex items-center gap-2 border-b border-border px-4 py-2.5 text-xs text-muted-foreground">
               <Bot className="size-3.5 text-chart-2" strokeWidth={1.75} />
               session <code>{sessionId}</code>
-              <span className="ml-auto font-mono">POST /agent/chat</span>
+              <Pill
+                tone={chatHealth === "down" ? "red" : chatHealth === "live" ? "teal" : "neutral"}
+                className="ml-auto"
+              >
+                chat · {chatLabel}
+              </Pill>
+              <span className="font-mono">POST /agent/chat</span>
             </div>
 
             <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
@@ -214,10 +224,13 @@ export function AgentConsole() {
               Approvals execute against PostgreSQL in one audited transaction.
             </CardDescription>
             <CardAction>
-              <Pill tone={demo ? "amber" : "teal"}>{demo ? "demo" : "live"}</Pill>
+              <Pill tone={proposals.mode === "live" ? "teal" : "amber"}>
+                proposals · {proposalsLabel}
+              </Pill>
             </CardAction>
           </CardHeader>
           <CardContent>
+            {demo ? <ApiBanner mode={proposals.mode} error={proposals.error} /> : null}
             {proposals.data === null ? (
               <Loading label="Loading proposals…" />
             ) : pendingProposals.length === 0 ? (

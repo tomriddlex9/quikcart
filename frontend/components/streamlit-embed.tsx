@@ -19,6 +19,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const STREAMLIT_URL = (
   process.env.NEXT_PUBLIC_STREAMLIT_URL ?? "http://localhost:8501"
@@ -59,17 +60,82 @@ const DASHBOARD_PAGES = [
   },
 ] as const;
 
-type HealthState = "checking" | "up" | "down";
+type DashboardPage = (typeof DASHBOARD_PAGES)[number];
+type HealthState = "checking" | "up" | "down" | "unknown";
 type EmbedHeight = 400 | 600 | 800;
 
 function pageUrl(name: string) {
   return `${STREAMLIT_URL}/?page=${encodeURIComponent(name)}&embed=true`;
 }
 
+function isDashboardPage(value: string): value is DashboardPage["name"] {
+  return DASHBOARD_PAGES.some((page) => page.name === value);
+}
+
+/**
+ * Same-origin or CORS-readable responses only.
+ * An opaque no-cors result is not evidence the server is up.
+ */
+async function probeStreamlit(url: string, signal: AbortSignal): Promise<HealthState> {
+  if (!url) return "unknown";
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      cache: "no-store",
+      mode: "cors",
+      signal,
+    });
+    if (response.type === "opaque" || response.type === "opaqueredirect") {
+      return "unknown";
+    }
+    return response.ok ? "up" : "down";
+  } catch {
+    return "unknown";
+  }
+}
+
+function OpenInTab({ url }: { url: string }) {
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      nativeButton={false}
+      render={<a href={url} target="_blank" rel="noopener noreferrer" />}
+    >
+      <ExternalLink />
+      Open in tab
+    </Button>
+  );
+}
+
+function StreamlitFrame({
+  name,
+  url,
+  className,
+  style,
+}: {
+  name: string;
+  url: string;
+  className?: string;
+  style?: { height: EmbedHeight };
+}) {
+  return (
+    <iframe
+      className={className}
+      src={url}
+      title={`QuickCart ${name} dashboard`}
+      style={style}
+    />
+  );
+}
+
 function StreamlitCard({
   name,
   description,
-}: (typeof DASHBOARD_PAGES)[number]) {
+}: {
+  name: DashboardPage["name"];
+  description: string;
+}) {
   const [height, setHeight] = useState<EmbedHeight>(600);
   const [expanded, setExpanded] = useState(false);
   const url = pageUrl(name);
@@ -79,7 +145,10 @@ function StreamlitCard({
       <Card className="border-border/70 bg-card/70 py-0 shadow-none">
         <CardHeader className="border-b border-border/60 py-4">
           <CardTitle>{name}</CardTitle>
-          <CardDescription>{description}</CardDescription>
+          <CardDescription>
+            {description} If the frame stays blank, Streamlit is refusing the embed.
+            Open in tab still loads this page.
+          </CardDescription>
           <CardAction className="flex items-center gap-2">
             <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
               Height
@@ -99,23 +168,24 @@ function StreamlitCard({
           </CardAction>
         </CardHeader>
         <CardContent className="px-0">
-          <iframe
-            className="w-full border-0 bg-background"
-            src={url}
-            title={`QuickCart ${name} dashboard`}
-            loading="lazy"
-            style={{ height }}
-          />
+          {expanded ? (
+            <div
+              className="flex items-center justify-center bg-background text-sm text-muted-foreground"
+              style={{ height }}
+            >
+              Expanded view is open.
+            </div>
+          ) : (
+            <StreamlitFrame
+              name={name}
+              url={url}
+              className="w-full border-0 bg-background"
+              style={{ height }}
+            />
+          )}
         </CardContent>
         <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border/60 px-4 py-3">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => window.open(url, "_blank", "noopener,noreferrer")}
-          >
-            <ExternalLink />
-            Open in tab
-          </Button>
+          <OpenInTab url={url} />
           <Button variant="secondary" size="sm" onClick={() => setExpanded(true)}>
             <Expand />
             Expand
@@ -127,13 +197,22 @@ function StreamlitCard({
         <DialogContent className="h-[92vh] max-w-[96vw] grid-rows-[auto_1fr] sm:max-w-[96vw]">
           <DialogHeader>
             <DialogTitle>{name}</DialogTitle>
-            <DialogDescription>{description}</DialogDescription>
+            <DialogDescription>
+              {description} If this frame is blank, use Open in tab.
+            </DialogDescription>
           </DialogHeader>
-          <iframe
-            className="h-full min-h-0 w-full rounded-lg border border-border bg-background"
-            src={url}
-            title={`Expanded QuickCart ${name} dashboard`}
-          />
+          <div className="flex h-full min-h-0 flex-col gap-3">
+            <div>
+              <OpenInTab url={url} />
+            </div>
+            {expanded ? (
+              <StreamlitFrame
+                name={name}
+                url={url}
+                className="h-full min-h-0 w-full flex-1 rounded-lg border border-border bg-background"
+              />
+            ) : null}
+          </div>
         </DialogContent>
       </Dialog>
     </>
@@ -147,23 +226,30 @@ function HealthBadge({ state }: { state: HealthState }) {
   if (state === "up") {
     return <Badge className="bg-emerald-500/15 text-emerald-400">Online</Badge>;
   }
+  if (state === "unknown") {
+    return <Badge variant="outline">Unknown</Badge>;
+  }
   return <Badge variant="destructive">Offline</Badge>;
 }
 
 export function StreamlitEmbed() {
-  const [state, setState] = useState<"checking" | "up" | "down">("checking");
+  const [state, setState] = useState<HealthState>("checking");
+  const [selected, setSelected] = useState<DashboardPage["name"]>(DASHBOARD_PAGES[0].name);
+  const page = DASHBOARD_PAGES.find((item) => item.name === selected) ?? DASHBOARD_PAGES[0];
 
   useEffect(() => {
     let cancelled = false;
-    fetch(STREAMLIT_URL, { mode: "no-cors", cache: "no-store" })
-      .then(() => {
-        if (!cancelled) setState("up");
-      })
-      .catch(() => {
-        if (!cancelled) setState("down");
-      });
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 8000);
+
+    probeStreamlit(STREAMLIT_URL, controller.signal).then((next) => {
+      if (!cancelled) setState(next);
+    });
+
     return () => {
       cancelled = true;
+      controller.abort();
+      window.clearTimeout(timeout);
     };
   }, []);
 
@@ -173,36 +259,55 @@ export function StreamlitEmbed() {
         <CardHeader>
           <CardTitle>Embedded operations views</CardTitle>
           <CardDescription>
-            Each module is routed directly to its Streamlit page. Resize a card
-            or expand it for focused analysis.
+            One Streamlit module at a time. Switching modules unmounts the previous frame.
           </CardDescription>
           <CardAction>
             <HealthBadge state={state} />
           </CardAction>
         </CardHeader>
-        {state === "down" && (
-          <CardContent>
+        <CardContent className="space-y-4">
+          {state === "down" ? (
             <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-muted-foreground">
               <MonitorCog className="mt-0.5 size-4 shrink-0 text-destructive" />
               <p>
-                Nothing is listening at{" "}
-                <code className="text-foreground">{STREAMLIT_URL}</code>. Start
-                it with{" "}
-                <code className="text-foreground">
-                  uv run streamlit run dashboard/app.py
-                </code>
-                .
+                Streamlit at <code className="text-foreground">{STREAMLIT_URL}</code> responded
+                with an error. Start it with{" "}
+                <code className="text-foreground">uv run streamlit run dashboard/app.py</code>.
               </p>
             </div>
-          </CardContent>
-        )}
+          ) : null}
+          {state === "unknown" ? (
+            <div className="flex items-start gap-2 rounded-lg border border-border/70 bg-muted/40 p-3 text-sm text-muted-foreground">
+              <MonitorCog className="mt-0.5 size-4 shrink-0" />
+              <p>
+                Health is unknown for <code className="text-foreground">{STREAMLIT_URL}</code>.
+                The browser could not read a status (cross-origin block or no response). Open a
+                module in a new tab to use it. Locally, start Streamlit with{" "}
+                <code className="text-foreground">uv run streamlit run dashboard/app.py</code>.
+              </p>
+            </div>
+          ) : null}
+          <Tabs
+            value={selected}
+            onValueChange={(value) => {
+              if (typeof value === "string" && isDashboardPage(value)) setSelected(value);
+            }}
+          >
+            <TabsList
+              aria-label="Streamlit modules"
+              className="flex h-auto w-full flex-wrap justify-start gap-1 group-data-horizontal/tabs:h-auto"
+            >
+              {DASHBOARD_PAGES.map((item) => (
+                <TabsTrigger key={item.name} value={item.name} className="h-7 flex-none px-2.5">
+                  {item.name}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+        </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        {DASHBOARD_PAGES.map((page) => (
-          <StreamlitCard key={page.name} {...page} />
-        ))}
-      </div>
+      <StreamlitCard key={page.name} name={page.name} description={page.description} />
     </div>
   );
 }

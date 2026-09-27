@@ -164,8 +164,15 @@ export function ProposalsBoard() {
               {rows.map((p) => (
                 <TableRow
                   key={p.proposal_id}
+                  tabIndex={0}
+                  role="button"
                   onClick={() => setOpenId(p.proposal_id)}
-                  className="cursor-pointer"
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter" && event.key !== " ") return;
+                    if (event.key === " ") event.preventDefault();
+                    setOpenId(p.proposal_id);
+                  }}
+                  className="cursor-pointer focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring focus-visible:outline-none"
                 >
                   <TableCell className="pl-4 text-muted-foreground">#{p.proposal_id}</TableCell>
                   <TableCell>{p.proposal_type}</TableCell>

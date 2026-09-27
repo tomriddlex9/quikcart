@@ -56,10 +56,33 @@ function escapeHtml(value: string): string {
     .replaceAll('"', "&quot;");
 }
 
-export function StoreMapLeaflet({ stores }: { stores: GeoStore[] }) {
+function focusStore(map: L.Map, marker: L.Marker, store: GeoStore) {
+  const target = L.latLng(store.latitude, store.longitude);
+  const zoom = Math.max(map.getZoom(), 13);
+  const alreadyThere = map.getZoom() >= 13 && map.getCenter().distanceTo(target) < 80;
+  if (!alreadyThere) {
+    map.flyTo(target, zoom, { duration: 0.6 });
+  }
+  marker.openPopup();
+}
+
+export function StoreMapLeaflet({
+  stores,
+  selectedStoreId = null,
+  focusNonce = 0,
+}: {
+  stores: GeoStore[];
+  selectedStoreId?: number | null;
+  focusNonce?: number;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const markersRef = useRef<L.LayerGroup | null>(null);
+  const markersByIdRef = useRef<Map<number, L.Marker>>(new Map());
+  const storesRef = useRef(stores);
+  const selectedStoreIdRef = useRef(selectedStoreId);
+  storesRef.current = stores;
+  selectedStoreIdRef.current = selectedStoreId;
 
   useEffect(() => {
     const node = containerRef.current;
@@ -88,18 +111,39 @@ export function StoreMapLeaflet({ stores }: { stores: GeoStore[] }) {
     if (!map || !layer) return;
 
     layer.clearLayers();
+    const markersById = new Map<number, L.Marker>();
+    markersByIdRef.current = markersById;
     if (stores.length === 0) return;
 
     const bounds = L.latLngBounds([]);
     for (const store of stores) {
       const latLng: L.LatLngExpression = [store.latitude, store.longitude];
       bounds.extend(latLng);
-      L.marker(latLng, { icon: defaultIcon })
-        .bindPopup(popupHtml(store))
+      const marker = L.marker(latLng, { icon: defaultIcon })
+        .bindPopup(popupHtml(store), { autoPan: false })
         .addTo(layer);
+      markersById.set(store.store_id, marker);
     }
-    map.fitBounds(bounds, { padding: [32, 32], maxZoom: 12 });
+
+    const selected = stores.find((store) => store.store_id === selectedStoreIdRef.current);
+    const selectedMarker = selected ? markersById.get(selected.store_id) : undefined;
+    if (selected && selectedMarker) {
+      focusStore(map, selectedMarker, selected);
+      return;
+    }
+    if (bounds.isValid()) {
+      map.fitBounds(bounds, { padding: [32, 32], maxZoom: 12 });
+    }
   }, [stores]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || selectedStoreId == null) return;
+    const store = storesRef.current.find((item) => item.store_id === selectedStoreId);
+    const marker = markersByIdRef.current.get(selectedStoreId);
+    if (!store || !marker) return;
+    focusStore(map, marker, store);
+  }, [selectedStoreId, focusNonce]);
 
   return <div ref={containerRef} className="h-full w-full rounded-lg" />;
 }

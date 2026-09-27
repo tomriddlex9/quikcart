@@ -452,10 +452,23 @@ def generate_sql(
 
     if llm is None:
         try:
-            from quickcart.agents.llm import GrokLLM
+            from quickcart.config.settings import get_settings
 
-            llm = GrokLLM()
-        except Exception as exc:  # XAI_API_KEY missing / transport misconfigured
+            settings = get_settings()
+            if settings.xai_api_key:
+                from quickcart.agents.llm import GrokLLM
+
+                llm = GrokLLM()
+            else:
+                # Prefer Grok when XAI_API_KEY is set; keep local Ollama as the
+                # zero-cost fallback so the live demo still generates SQL.
+                from quickcart.agents.llm import OllamaLLM
+
+                llm = OllamaLLM()
+                collected.append(
+                    "XAI_API_KEY unset — using local Ollama instead of Grok"
+                )
+        except Exception as exc:  # model not configured / package missing
             log.warning("sql.generate_llm_unavailable", error=str(exc))
             collected.append(f"model unavailable: {exc}")
             return GeneratedSql(

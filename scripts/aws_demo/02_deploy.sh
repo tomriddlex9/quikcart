@@ -150,7 +150,7 @@ EXISTING_XAI_KEY="$(grep -E '^XAI_API_KEY=' .env.aws-demo 2>/dev/null | cut -d= 
 EXISTING_XAI_MODEL="$(grep -E '^XAI_MODEL=' .env.aws-demo 2>/dev/null | cut -d= -f2- || true)"
 EXISTING_XAI_BASE="$(grep -E '^XAI_BASE_URL=' .env.aws-demo 2>/dev/null | cut -d= -f2- || true)"
 GEMINI_API_KEY="${GEMINI_API_KEY:-$EXISTING_GEMINI_KEY}"
-GEMINI_MODEL="${GEMINI_MODEL:-${EXISTING_GEMINI_MODEL:-gemini-2.0-flash}}"
+GEMINI_MODEL="${GEMINI_MODEL:-${EXISTING_GEMINI_MODEL:-gemini-3.8-flash}}"
 GEMINI_BASE_URL="${GEMINI_BASE_URL:-${EXISTING_GEMINI_BASE:-https://generativelanguage.googleapis.com/v1beta}}"
 XAI_API_KEY="${XAI_API_KEY:-$EXISTING_XAI_KEY}"
 XAI_MODEL="${XAI_MODEL:-${EXISTING_XAI_MODEL:-grok-3-mini}}"

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
   ArrowRight,
@@ -16,7 +17,9 @@ import { ApiBanner } from "@/components/api-banner";
 import { Pill, StatusDot } from "@/components/pill";
 import { Loading } from "@/components/states";
 import { Badge } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 import {
   StackedTabs,
   StackedTabsContent,
@@ -450,6 +453,59 @@ function OperationDetail({ op, sample, isLive }: { op: LayerOperation; sample: L
   );
 }
 
+function LayerSummaryTile({
+  layer,
+  summary,
+  active,
+  onSelect,
+}: {
+  layer: MedallionLayer;
+  summary: { tables: number; ops: number; purpose: string };
+  active: boolean;
+  onSelect: () => void;
+}) {
+  const body = (
+    <>
+      <Pill tone={LAYER_TONE[layer]}>
+        <StatusDot tone={LAYER_TONE[layer]} />
+        {LAYER_LABELS[layer]}
+      </Pill>
+      <div className="mt-2 font-mono text-lg font-semibold tabular-nums">
+        {formatNumber(summary.tables)}
+      </div>
+      <div className="text-[10px] text-muted-foreground">tables · {summary.ops} ops</div>
+      <div className="mt-1 text-[10px] leading-snug text-muted-foreground">{summary.purpose}</div>
+    </>
+  );
+
+  if (layer === "raw") {
+    return (
+      <div className="rounded-xl border border-border bg-card px-3 py-2.5 text-left">
+        {body}
+        <Link
+          href="/database?layer=raw"
+          className={cn(buttonVariants({ variant: "link", size: "sm" }), "mt-2 h-auto px-0")}
+        >
+          Open raw tables
+        </Link>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={
+        "rounded-xl border px-3 py-2.5 text-left transition-colors " +
+        (active ? "border-chart-2/50 bg-chart-2/8" : "border-border bg-card hover:bg-muted/40")
+      }
+    >
+      {body}
+    </button>
+  );
+}
+
 export function LayersWorkbench() {
   const searchParams = useSearchParams();
   const deepLinkOp = searchParams.get("op");
@@ -557,33 +613,17 @@ export function LayersWorkbench() {
           const summary = catalog.layer_summaries[layer];
           if (!summary) return null;
           return (
-            <button
+            <LayerSummaryTile
               key={layer}
-              type="button"
-              onClick={() => {
+              layer={layer}
+              summary={summary}
+              active={activeLayer === layer}
+              onSelect={() => {
                 if (layer === "raw") return;
                 setActiveLayer(layer);
                 setSelectedOpId(null);
               }}
-              className={
-                "rounded-xl border px-3 py-2.5 text-left transition-colors " +
-                (activeLayer === layer
-                  ? "border-chart-2/50 bg-chart-2/8"
-                  : "border-border bg-card hover:bg-muted/40")
-              }
-            >
-              <Pill tone={LAYER_TONE[layer]}>
-                <StatusDot tone={LAYER_TONE[layer]} />
-                {LAYER_LABELS[layer]}
-              </Pill>
-              <div className="mt-2 font-mono text-lg font-semibold tabular-nums">
-                {formatNumber(summary.tables)}
-              </div>
-              <div className="text-[10px] text-muted-foreground">tables · {summary.ops} ops</div>
-              <div className="mt-1 text-[10px] leading-snug text-muted-foreground">
-                {summary.purpose}
-              </div>
-            </button>
+            />
           );
         })}
       </div>

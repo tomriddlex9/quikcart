@@ -184,8 +184,34 @@ export function QueryWorkbench() {
     setRunResult(result.data);
   };
 
+  const alertMessage = generateError ?? runError;
+
   return (
     <div className="space-y-4">
+      {alertMessage ? (
+        <div
+          role="alert"
+          className="sticky top-20 z-30 flex items-start gap-2 rounded-lg border border-destructive/30 bg-background px-3 py-2 text-xs text-destructive shadow-sm md:top-12"
+        >
+          <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
+          <div className="space-y-1">
+            {generateError && runError ? (
+              <>
+                <p>
+                  <span className="font-medium">Generate: </span>
+                  {generateError}
+                </p>
+                <p>
+                  <span className="font-medium">Run: </span>
+                  {runError}
+                </p>
+              </>
+            ) : (
+              <p>{alertMessage}</p>
+            )}
+          </div>
+        </div>
+      ) : null}
       <Card>
         <CardHeader className="border-b">
           <CardTitle>1. Pick a source and a question</CardTitle>
@@ -265,12 +291,6 @@ export function QueryWorkbench() {
             </div>
           ) : null}
 
-          {generateError ? (
-            <p className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-              <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
-              {generateError}
-            </p>
-          ) : null}
           {generateInfo && generateInfo.allowed !== false ? (
             <div className="space-y-1.5 text-xs text-muted-foreground">
               <div className="flex flex-wrap items-center gap-2">
@@ -336,12 +356,6 @@ export function QueryWorkbench() {
             </Button>
             <span className="text-xs text-muted-foreground">Results capped at {ROW_LIMIT} rows.</span>
           </div>
-          {runError ? (
-            <p className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-              <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
-              {runError}
-            </p>
-          ) : null}
         </CardContent>
       </Card>
 

@@ -41,6 +41,14 @@ import type { CatalogLayer, CatalogPreviewResponse, CatalogTablesResponse } from
 
 const LAYERS: CatalogLayer[] = ["raw", "bronze", "silver", "quarantine", "gold"];
 
+const LAYER_LABEL: Record<CatalogLayer, string> = {
+  raw: "Raw",
+  bronze: "Bronze",
+  silver: "Silver",
+  quarantine: "Quarantine",
+  gold: "Gold",
+};
+
 const LAYER_PURPOSE: Record<CatalogLayer, string> = {
   raw: "PostgreSQL operational source of truth",
   bronze: "Append-only landings from batch, CDC, and external feeds",
@@ -261,19 +269,14 @@ export function DatabaseWorkbench() {
         <StackedTabsList aria-label="Database section">
           {LAYERS.map((l) => (
             <StackedTabsTrigger key={l} value={l}>
-              {l.charAt(0).toUpperCase() + l.slice(1)}
-              <span className="ml-2 text-[11px] font-normal text-muted-foreground">
-                {LAYER_PURPOSE[l]}
-              </span>
+              {LAYER_LABEL[l]}
             </StackedTabsTrigger>
           ))}
-          <StackedTabsTrigger value="lineage">
-            Lineage
-            <span className="ml-2 text-[11px] font-normal text-muted-foreground">
-              Edges across the medallion
-            </span>
-          </StackedTabsTrigger>
+          <StackedTabsTrigger value="lineage">Lineage</StackedTabsTrigger>
         </StackedTabsList>
+        <p className="px-1 text-xs text-muted-foreground">
+          {layer === "lineage" ? "Edges across the medallion" : LAYER_PURPOSE[layer]}
+        </p>
 
         <StackedTabsContent value="lineage">
           <Card size="sm">

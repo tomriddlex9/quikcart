@@ -48,7 +48,12 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "qwen2.5:1.5b"
 
-    # xAI Grok (NL→SQL and other OpenAI-compatible chat calls)
+    # Google Gemini (preferred for NL→SQL on the /query console)
+    gemini_api_key: str = ""
+    gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
+    gemini_model: str = "gemini-2.0-flash"
+
+    # xAI Grok (optional OpenAI-compatible chat calls)
     xai_api_key: str = ""
     xai_base_url: str = "https://api.x.ai/v1"
     xai_model: str = "grok-3-mini"

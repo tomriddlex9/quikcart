@@ -20,7 +20,7 @@ import { classifyQuestionIntent, sqlWriteJoke } from "@/lib/sql-intent";
 import { SQL_TEMPLATES, type SqlTemplate } from "@/lib/sql-templates";
 import type { SqlExecuteResponse, SqlGenerateResponse, SqlSource } from "@/lib/types";
 
-// SQL generation calls xAI Grok via the API — 45s covers network + generation without
+// SQL generation calls Gemini via the API — 45s covers network + generation without
 // leaving the UI hung if the key is missing or the upstream is slow.
 const GENERATE_TIMEOUT_MS = 45_000;
 // Analytical queries (window functions, multi-way joins) run longer than a typical

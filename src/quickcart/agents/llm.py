@@ -3,7 +3,7 @@
 `LLMClient` is a protocol so tests and the evaluation suite inject a
 deterministic `FakeLLM` — zero Ollama, zero network (kit/05 §4.3: domain
 logic separate from I/O adapters). Production implementations are
-``GrokLLM`` (xAI, OpenAI-compatible HTTP) and ``OllamaLLM`` (local dev).
+``GeminiLLM`` (Google AI), ``GrokLLM`` (xAI), and ``OllamaLLM`` (local).
 Model names and endpoints always come from ``quickcart.config.settings`` —
 never hard-coded. Temperature is 0 for determinism, and transport failures
 surface as `LLMError` so the service can degrade loudly rather than silently.
@@ -109,6 +109,127 @@ class OllamaLLM:
 
 
 UrlOpen = Callable[..., Any]
+
+
+def _gemini_contents(
+    messages: list[dict[str, str]],
+) -> tuple[str | None, list[dict[str, Any]]]:
+    """Split OpenAI-style messages into Gemini systemInstruction + contents."""
+    system_parts: list[str] = []
+    contents: list[dict[str, Any]] = []
+    for message in messages:
+        role = message.get("role", "user")
+        text = message.get("content", "")
+        if role == "system":
+            if text.strip():
+                system_parts.append(text)
+            continue
+        gemini_role = "model" if role == "assistant" else "user"
+        contents.append({"role": gemini_role, "parts": [{"text": text}]})
+    system = "\n\n".join(system_parts) if system_parts else None
+    return system, contents
+
+
+class GeminiLLM:
+    """Google Generative Language API (Gemini) via generateContent REST."""
+
+    def __init__(
+        self,
+        model: str | None = None,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        timeout: float = DEFAULT_TIMEOUT_SECONDS,
+        urlopen: UrlOpen | None = None,
+    ) -> None:
+        settings = get_settings()
+        self._model = model or settings.gemini_model
+        if not self._model:
+            raise LLMError("gemini_model is not configured (env GEMINI_MODEL)")
+        self._base_url = (base_url or settings.gemini_base_url).rstrip("/")
+        resolved_key = settings.gemini_api_key if api_key is None else api_key
+        if not resolved_key:
+            raise LLMError("gemini_api_key is not configured (env GEMINI_API_KEY)")
+        self._api_key = resolved_key.strip()
+        self._timeout = timeout
+        self._urlopen = urlopen or urllib.request.urlopen
+
+    @property
+    def model(self) -> str:
+        return self._model
+
+    def chat(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        json_mode: bool = False,
+        max_tokens: int | None = None,
+    ) -> str:
+        system, contents = _gemini_contents(messages)
+        if not contents:
+            raise LLMError("gemini chat requires at least one user message")
+
+        generation_config: dict[str, Any] = {"temperature": 0}
+        if max_tokens is not None:
+            generation_config["maxOutputTokens"] = max_tokens
+        if json_mode:
+            generation_config["responseMimeType"] = "application/json"
+
+        payload: dict[str, Any] = {
+            "contents": contents,
+            "generationConfig": generation_config,
+        }
+        if system:
+            payload["systemInstruction"] = {"parts": [{"text": system}]}
+
+        body = json.dumps(payload).encode("utf-8")
+        url = (
+            f"{self._base_url}/models/{self._model}:generateContent"
+            f"?key={self._api_key}"
+        )
+        request = urllib.request.Request(
+            url,
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with self._urlopen(request, timeout=self._timeout) as response:
+                raw = response.read().decode("utf-8")
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            logger.warning(
+                "agent.llm_error",
+                model=self._model,
+                error=f"HTTP {exc.code}",
+            )
+            raise LLMError(f"gemini chat failed: HTTP {exc.code}: {detail}") from exc
+        except Exception as exc:
+            logger.warning("agent.llm_error", model=self._model, error=str(exc))
+            raise LLMError(f"gemini chat failed: {exc}") from exc
+
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise LLMError(f"gemini returned invalid JSON: {exc}") from exc
+
+        candidates = parsed.get("candidates")
+        if not isinstance(candidates, list) or not candidates:
+            raise LLMError("gemini returned no candidates")
+
+        content = candidates[0].get("content") if isinstance(candidates[0], dict) else None
+        parts = content.get("parts") if isinstance(content, dict) else None
+        if not isinstance(parts, list) or not parts:
+            raise LLMError("gemini returned no content parts")
+
+        texts = [
+            part.get("text", "")
+            for part in parts
+            if isinstance(part, dict) and isinstance(part.get("text"), str)
+        ]
+        reply = "".join(texts).strip()
+        if reply:
+            return reply
+        raise LLMError(f"gemini returned an empty reply (model {self._model})")
 
 
 class GrokLLM:

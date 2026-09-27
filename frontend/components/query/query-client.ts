@@ -1,7 +1,7 @@
 // Local POST helper for the /query workbench.
 //
 // `apiPostJson` in `@/lib/api` is fixed at a 5s timeout, which suits fast writes like
-// approving a proposal but not NL→SQL generation via Grok (xAI) or long-running
+// approving a proposal but not NL→SQL generation via Gemini or long-running
 // analytical queries. Rather than edit the shared helper, this module reimplements
 // the same `PostResult<T>` contract with a caller-supplied timeout, kept local to the
 // query feature.

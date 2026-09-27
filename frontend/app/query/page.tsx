@@ -11,7 +11,7 @@ export default function QueryPage() {
     <>
       <PageHeader
         title="Query"
-        description="Ask a question in plain English (Grok generates the SQL) or start from a template, review the candidate, then run it read-only against PostgreSQL or the lakehouse. Nothing runs without your review."
+        description="Ask a question in plain English (Gemini generates the SQL) or start from a template, review the candidate, then run it read-only against PostgreSQL or the lakehouse. Nothing runs without your review."
       />
       <QueryWorkbench />
     </>

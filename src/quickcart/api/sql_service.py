@@ -455,18 +455,22 @@ def generate_sql(
             from quickcart.config.settings import get_settings
 
             settings = get_settings()
-            if settings.xai_api_key:
+            if settings.gemini_api_key:
+                from quickcart.agents.llm import GeminiLLM
+
+                llm = GeminiLLM()
+            elif settings.xai_api_key:
                 from quickcart.agents.llm import GrokLLM
 
                 llm = GrokLLM()
             else:
-                # Prefer Grok when XAI_API_KEY is set; keep local Ollama as the
-                # zero-cost fallback so the live demo still generates SQL.
+                # Prefer Gemini (then Grok) when configured; keep local Ollama
+                # as the zero-cost fallback so the live demo still generates SQL.
                 from quickcart.agents.llm import OllamaLLM
 
                 llm = OllamaLLM()
                 collected.append(
-                    "XAI_API_KEY unset — using local Ollama instead of Grok"
+                    "GEMINI_API_KEY unset — using local Ollama instead of Gemini"
                 )
         except Exception as exc:  # model not configured / package missing
             log.warning("sql.generate_llm_unavailable", error=str(exc))

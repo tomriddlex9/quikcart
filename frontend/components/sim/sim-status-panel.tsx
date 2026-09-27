@@ -21,19 +21,10 @@ export function SimStatusPanel() {
     DEMO_SIM_STATUS,
     STATUS_REFRESH_MS,
   );
-  if (!data) {
-    return (
-      <section
-        aria-label="Simulator status"
-        className="mb-4 rounded-xl border border-dashed border-border px-4 py-3 text-sm text-muted-foreground"
-      >
-        Checking simulator…
-      </section>
-    );
-  }
-
-  const running = data.state.running;
-  const ordersPerMinute = data.state.orders_per_minute * data.state.burst_factor;
+  const running = data?.state.running ?? false;
+  const ordersPerMinute = data
+    ? data.state.orders_per_minute * data.state.burst_factor
+    : null;
   const tone = running ? "teal" : "neutral";
 
   return (
@@ -46,14 +37,20 @@ export function SimStatusPanel() {
           className={running ? "size-3.5 text-chart-2" : "size-3.5 text-muted-foreground"}
           strokeWidth={1.75}
         />
-        <Pill tone={tone}>
-          <StatusDot tone={tone} />
-          {running ? "Running" : "Stopped"}
-        </Pill>
-        <span className="text-sm tabular-nums text-foreground">
-          {formatNumber(Math.round(ordersPerMinute))} orders/min
-        </span>
-        {mode === "demo" ? <span className="text-xs text-chart-3">demo</span> : null}
+        {data ? (
+          <>
+            <Pill tone={tone}>
+              <StatusDot tone={tone} />
+              {running ? "Running" : "Stopped"}
+            </Pill>
+            <span className="text-sm tabular-nums text-foreground">
+              {formatNumber(Math.round(ordersPerMinute ?? 0))} orders/min
+            </span>
+            {mode === "demo" ? <span className="text-xs text-chart-3">demo</span> : null}
+          </>
+        ) : (
+          <span className="text-sm text-muted-foreground">Checking simulator…</span>
+        )}
       </div>
       <Button type="button" size="sm" onClick={() => openSimDock()}>
         Open simulator

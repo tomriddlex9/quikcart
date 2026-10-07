@@ -1,0 +1,204 @@
+# Semantic metric registry — the single source of business-metric meaning for the
+# business console (Phase B2). Wording here is plain language for store managers
+# and executives; formulas stay consistent with docs/data_dictionary/metrics.md.
+#
+# Units: inr (rupees), pct (stored as a 0..1 fraction, displayed as %), count,
+# minutes. Thresholds use the stored unit (so 0.10 means 10 %).
+#   thresholds.watch / thresholds.bad          absolute limits on the value
+#   thresholds.relative_watch / relative_bad   adverse % change vs the baseline
+# Status is the worst of whichever checks are configured and computable.
+#
+# Explainer placeholders: {label} {value} {delta_pct} (absolute, one decimal)
+# {baseline_label}.
+
+version: 1
+
+metrics:
+  - key: sales_gmv
+    label: Sales
+    plain_description: Money customers spent on orders that were not cancelled.
+    formula_text: Sum of order totals for every order that was not cancelled (refunds stay in).
+    unit: inr
+    gold_source: gold_store_hourly_metrics.gmv
+    direction: higher_better
+    thresholds: {relative_watch: 15, relative_bad: 30}
+    explainers:
+      up: "{label} is {value}, up {delta_pct}% on {baseline_label}."
+      down: "{label} is {value}, down {delta_pct}% on {baseline_label}."
+      flat: "{label} is {value}, about the same as {baseline_label}."
+    synonyms: [sales, gmv, revenue, turnover, gross merchandise value]
+    compare_default: same_day_last_week
+
+  - key: orders
+    label: Orders
+    plain_description: How many orders customers placed, including ones later cancelled.
+    formula_text: Count of orders placed in the period.
+    unit: count
+    gold_source: gold_store_hourly_metrics.orders_placed
+    direction: higher_better
+    thresholds: {relative_watch: 15, relative_bad: 30}
+    explainers:
+      up: "{value} orders were placed, {delta_pct}% more than {baseline_label}."
+      down: "{value} orders were placed, {delta_pct}% fewer than {baseline_label}."
+      flat: "{value} orders were placed, about the same as {baseline_label}."
+    synonyms: [orders, order count, order volume, baskets placed]
+    compare_default: same_day_last_week
+
+  - key: average_basket
+    label: Average basket (AOV)
+    plain_description: How much a typical successful order is worth.
+    formula_text: Sales divided by the number of orders that were not cancelled.
+    unit: inr
+    gold_source: gold_store_hourly_metrics.avg_order_value
+    direction: higher_better
+    thresholds: {relative_watch: 10, relative_bad: 20}
+    explainers:
+      up: "The average basket is {value}, up {delta_pct}% on {baseline_label}."
+      down: "The average basket is {value}, down {delta_pct}% on {baseline_label}."
+      flat: "The average basket is {value}, about the same as {baseline_label}."
+    synonyms: [aov, average order value, basket size, ticket size, average basket]
+    compare_default: same_day_last_week
+
+  - key: cancel_rate
+    label: Cancelled orders
+    plain_description: Share of placed orders that were cancelled before delivery.
+    formula_text: Cancelled orders divided by all orders placed.
+    unit: pct
+    gold_source: gold_store_hourly_metrics.cancel_rate
+    direction: lower_better
+    thresholds: {watch: 0.05, bad: 0.10}
+    explainers:
+      up: "{value} of orders were cancelled, up {delta_pct}% on {baseline_label}. Fewer is better."
+      down: "{value} of orders were cancelled, down {delta_pct}% on {baseline_label}. Fewer is better."
+      flat: "{value} of orders were cancelled, about the same as {baseline_label}."
+    synonyms: [cancellation rate, cancels, cancelled orders, order cancellations]
+    compare_default: same_day_last_week
+
+  - key: on_time_rate
+    label: On-time deliveries
+    plain_description: Share of delivered orders that reached the customer by the promised time.
+    formula_text: 1 minus the late rate, where late rate = late deliveries divided by delivered orders.
+    unit: pct
+    gold_source: gold_store_hourly_metrics.late_delivery_rate (1 - late_rate)
+    direction: higher_better
+    thresholds: {watch: 0.85, bad: 0.75}
+    explainers:
+      up: "{value} of deliveries arrived on time, up {delta_pct}% on {baseline_label}."
+      down: "{value} of deliveries arrived on time, down {delta_pct}% on {baseline_label}."
+      flat: "{value} of deliveries arrived on time, about the same as {baseline_label}."
+    synonyms: [on time, on-time delivery, sla met, delivery reliability, otd]
+    compare_default: same_day_last_week
+
+  - key: late_rate
+    label: Late deliveries
+    plain_description: Share of delivered orders that arrived after the promised time.
+    formula_text: Deliveries that arrived after the promised time divided by delivered orders.
+    unit: pct
+    gold_source: gold_store_hourly_metrics.late_delivery_rate
+    direction: lower_better
+    thresholds: {watch: 0.15, bad: 0.25}
+    explainers:
+      up: "{value} of deliveries were late, up {delta_pct}% on {baseline_label}. Fewer is better."
+      down: "{value} of deliveries were late, down {delta_pct}% on {baseline_label}. Fewer is better."
+      flat: "{value} of deliveries were late, about the same as {baseline_label}."
+    synonyms: [late delivery rate, late orders, delayed deliveries, sla breach]
+    compare_default: same_day_last_week
+
+  - key: avg_delivery_minutes
+    label: Delivery time
+    plain_description: Average minutes from the rider picking up the order to handing it over.
+    formula_text: Average of (delivered time minus pick-up time) over delivered orders.
+    unit: minutes
+    gold_source: gold_store_hourly_metrics.avg_delivery_minutes
+    direction: lower_better
+    thresholds: {watch: 25, bad: 35}
+    explainers:
+      up: "Deliveries took {value} on average, {delta_pct}% longer than {baseline_label}."
+      down: "Deliveries took {value} on average, {delta_pct}% faster than {baseline_label}."
+      flat: "Deliveries took {value} on average, about the same as {baseline_label}."
+    synonyms: [delivery time, delivery minutes, eta, trip time, time to deliver]
+    compare_default: same_day_last_week
+
+  - key: payment_failure_rate
+    label: Failed payments
+    plain_description: Share of payment attempts that failed.
+    formula_text: Failed payment attempts divided by all payment attempts (one order can try twice).
+    unit: pct
+    gold_source: gold_store_hourly_metrics.payment_failure_rate
+    direction: lower_better
+    thresholds: {watch: 0.05, bad: 0.10}
+    explainers:
+      up: "{value} of payment attempts failed, up {delta_pct}% on {baseline_label}. Fewer is better."
+      down: "{value} of payment attempts failed, down {delta_pct}% on {baseline_label}. Fewer is better."
+      flat: "{value} of payment attempts failed, about the same as {baseline_label}."
+    synonyms: [payment failures, failed payments, payment errors, declined payments]
+    compare_default: same_day_last_week
+
+  - key: availability_bestsellers
+    label: Bestsellers in stock
+    plain_description: How often the 20 top-selling products are available above their reorder level.
+    formula_text: >-
+      1 minus the share of (store, product) stock lines for the top 20 products
+      by revenue in the last 7 days that sit at or below their reorder point.
+      A proxy for shelf availability, not a measured fill rate.
+    unit: pct
+    gold_source: gold_inventory_health.is_below_reorder_point + gold_product_performance
+    direction: higher_better
+    thresholds: {watch: 0.90, bad: 0.80}
+    explainers:
+      up: "{value} of bestseller stock lines are healthy, up {delta_pct}% on {baseline_label}."
+      down: "{value} of bestseller stock lines are healthy, down {delta_pct}% on {baseline_label}."
+      flat: "{value} of bestseller stock lines are healthy."
+    synonyms: [availability, in stock, bestseller availability, on-shelf availability, osa]
+    compare_default: same_day_last_week
+    status: partial
+    partial_note: Current-stock proxy; history builds up as daily snapshots accumulate.
+
+  - key: stockout_risk_count
+    label: Products running low
+    plain_description: Store-and-product lines whose stock is at or below the reorder level.
+    formula_text: Count of inventory lines where on-hand stock is at or below the reorder point.
+    unit: count
+    gold_source: gold_inventory_health.is_below_reorder_point
+    direction: lower_better
+    thresholds: {watch: 10, bad: 30}
+    explainers:
+      up: "{value} product lines are running low, {delta_pct}% more than {baseline_label}."
+      down: "{value} product lines are running low, {delta_pct}% fewer than {baseline_label}."
+      flat: "{value} product lines are running low."
+    synonyms: [stockout risk, running low, low stock, reorder alerts, stock risk]
+    compare_default: same_day_last_week
+    status: partial
+    partial_note: Current-stock count; history builds up as daily snapshots accumulate.
+
+  - key: active_customers
+    label: Active customers
+    plain_description: Distinct customers who placed at least one order that was not cancelled.
+    formula_text: Count of distinct customers with a non-cancelled order in the period.
+    unit: count
+    gold_source: gold_customer_360
+    direction: higher_better
+    thresholds: {relative_watch: 15, relative_bad: 30}
+    explainers:
+      up: "{value} customers ordered, {delta_pct}% more than {baseline_label}."
+      down: "{value} customers ordered, {delta_pct}% fewer than {baseline_label}."
+      flat: "{value} customers ordered, about the same as {baseline_label}."
+    synonyms: [customers, active users, buyers, shoppers, daily active customers]
+    compare_default: same_day_last_week
+
+  - key: repeat_rate
+    label: Returning customers
+    plain_description: Share of customers who ordered more than once in the last 30 days.
+    formula_text: Customers with 2 or more orders divided by customers with 1 or more orders, over the trailing 30 days.
+    unit: pct
+    gold_source: gold_customer_360.lifetime_orders
+    direction: higher_better
+    thresholds: {relative_watch: 10, relative_bad: 25}
+    explainers:
+      up: "{value} of customers came back, up {delta_pct}% on {baseline_label}."
+      down: "{value} of customers came back, down {delta_pct}% on {baseline_label}."
+      flat: "{value} of customers came back, about the same as {baseline_label}."
+    synonyms: [repeat rate, retention, returning customers, repeat customers]
+    compare_default: same_day_last_week
+    status: partial
+    partial_note: Computed for the latest day and the same day last week only (trailing 30-day window).

@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiGetJson, type ApiMode } from "@/lib/api";
+import { useDataMode } from "@/lib/data-mode";
+import { demoCatalogLineage } from "@/lib/demo-payload";
 import type {
   CatalogLineage,
   LineageEdge,
@@ -30,36 +32,6 @@ const NODE_HEIGHT = 58;
 const ROW_GAP = 76;
 const TOP_GUTTER = 76;
 
-export const DEMO_CATALOG_LINEAGE: CatalogLineage = {
-  generated_at: new Date(0).toISOString(),
-  nodes: [
-    { id: "raw.orders", layer: "raw", name: "orders", columns: ["order_id", "store_id", "customer_id", "status", "total_amount"], row_count: 184_205 },
-    { id: "raw.customers", layer: "raw", name: "customers", columns: ["customer_id", "customer_code", "is_active"], row_count: 24_810 },
-    { id: "raw.inventory", layer: "raw", name: "inventory", columns: ["store_id", "product_id", "on_hand_qty"], row_count: 42_600 },
-    { id: "bronze.bronze_orders", layer: "bronze", name: "bronze_orders", columns: ["order_id", "status", "total_amount", "_ingestion_date"], row_count: 184_205 },
-    { id: "bronze.bronze_orders_cdc", layer: "bronze", name: "bronze_orders_cdc", columns: ["order_id", "op", "lsn", "_ingested_at"], row_count: 1_284 },
-    { id: "bronze.bronze_inventory", layer: "bronze", name: "bronze_inventory", columns: ["store_id", "product_id", "on_hand_qty", "_ingestion_date"], row_count: 42_600 },
-    { id: "silver.silver_orders", layer: "silver", name: "silver_orders", columns: ["order_id", "store_id", "status", "total_amount", "placed_at"], row_count: 183_996 },
-    { id: "silver.silver_inventory", layer: "silver", name: "silver_inventory", columns: ["store_id", "product_id", "on_hand_qty"], row_count: 42_571 },
-    { id: "quarantine.quarantine_orders", layer: "quarantine", name: "quarantine_orders", columns: ["order_id", "_reject_reason", "_ingestion_date"], row_count: 209 },
-    { id: "gold.gold_store_hourly_metrics", layer: "gold", name: "gold_store_hourly_metrics", columns: ["store_id", "metric_hour", "orders", "gmv"], row_count: 28_940 },
-    { id: "gold.gold_inventory_health", layer: "gold", name: "gold_inventory_health", columns: ["store_id", "product_id", "stock_cover_hours"], row_count: 6_930 },
-    { id: "gold.gold_delivery_predictions", layer: "gold", name: "gold_delivery_predictions", columns: ["order_id", "late_probability", "predicted_class"], row_count: 176_482 },
-  ],
-  edges: [
-    { source: "raw.orders", target: "bronze.bronze_orders", kind: "batch" },
-    { source: "raw.orders", target: "bronze.bronze_orders_cdc", kind: "cdc" },
-    { source: "raw.inventory", target: "bronze.bronze_inventory", kind: "batch" },
-    { source: "bronze.bronze_orders", target: "silver.silver_orders", kind: "batch" },
-    { source: "bronze.bronze_orders", target: "quarantine.quarantine_orders", kind: "batch" },
-    { source: "bronze.bronze_orders_cdc", target: "silver.silver_orders", kind: "cdc" },
-    { source: "bronze.bronze_inventory", target: "silver.silver_inventory", kind: "batch" },
-    { source: "silver.silver_orders", target: "gold.gold_store_hourly_metrics", kind: "batch" },
-    { source: "silver.silver_orders", target: "gold.gold_delivery_predictions", kind: "ml" },
-    { source: "silver.silver_inventory", target: "gold.gold_inventory_health", kind: "batch" },
-  ],
-};
-
 export interface LineageState {
   data: CatalogLineage | null;
   loading: boolean;
@@ -75,8 +47,15 @@ export function useCatalogLineage(): LineageState {
     error: null,
   });
 
+  const { source } = useDataMode();
+
   useEffect(() => {
+    if (source === "demo") {
+      setState({ data: demoCatalogLineage(), loading: false, mode: "demo", error: null });
+      return;
+    }
     let active = true;
+    setState((previous) => ({ ...previous, loading: true }));
     apiGetJson<CatalogLineage>("/api/v1/catalog/lineage")
       .then((data) => {
         if (active) setState({ data, loading: false, mode: "live", error: null });
@@ -84,16 +63,16 @@ export function useCatalogLineage(): LineageState {
       .catch((requestError: unknown) => {
         if (!active) return;
         setState({
-          data: DEMO_CATALOG_LINEAGE,
+          data: null,
           loading: false,
-          mode: "demo",
+          mode: "offline",
           error: requestError instanceof Error ? requestError.message : "lineage request failed",
         });
       });
     return () => {
       active = false;
     };
-  }, []);
+  }, [source]);
 
   return state;
 }

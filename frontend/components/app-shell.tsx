@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { ChevronDown, Command, Laptop, Moon, Settings2, Sun, TerminalSquare } from "lucide-react";
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { Command, Laptop, Moon, Settings2, Sun, TerminalSquare } from "lucide-react";
+import { useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { useTheme } from "next-themes";
 import { signOut } from "@/app/login/actions";
 import { Pill } from "@/components/pill";
@@ -19,7 +19,10 @@ import {
 } from "@/components/ui/command";
 import { Separator } from "@/components/ui/separator";
 import { PrefsSheet } from "@/components/prefs-sheet";
+import { MoreMenu } from "@/components/more-menu";
 import { ControlDock } from "@/components/sim/control-dock";
+import { DataModeProvider, useDataMode } from "@/lib/data-mode";
+import { businessRouteFor } from "@/lib/business-nav";
 import { LEARN, OPS, type NavItem } from "@/lib/nav";
 import { usePrefs } from "@/lib/prefs";
 import { cn } from "@/lib/utils";
@@ -27,7 +30,18 @@ import { cn } from "@/lib/utils";
 const THEME_CYCLE = ["light", "dark", "system"] as const;
 const THEME_ICON = { light: Sun, dark: Moon, system: Laptop } as const;
 
-export function AppShell({ children }: { children: ReactNode }) {
+function publicDemoEnabled(flag: string | undefined): boolean {
+  const value = flag ?? "";
+  return value === "1" || value.toLowerCase() === "true";
+}
+
+export function AppShell({
+  children,
+  publicDemo = false,
+}: {
+  children: ReactNode;
+  publicDemo?: boolean;
+}) {
   const pathname = usePathname();
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -35,7 +49,6 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [navigating, setNavigating] = useState(false);
   const [mounted, setMounted] = useState(false);
   const { theme, setTheme } = useTheme();
-  const { prefs } = usePrefs();
 
   useEffect(() => {
     setMounted(true);
@@ -74,10 +87,84 @@ export function AppShell({ children }: { children: ReactNode }) {
     ? THEME_ICON[(theme as (typeof THEME_CYCLE)[number]) ?? "system"]
     : Moon;
 
-  if (pathname === "/login") {
-    return <>{children}</>;
-  }
+  return (
+    <DataModeProvider>
+      <ShellFrame
+        pathname={pathname}
+        publicDemo={publicDemo}
+        open={open}
+        setOpen={setOpen}
+        prefsOpen={prefsOpen}
+        setPrefsOpen={setPrefsOpen}
+        navigating={navigating}
+        mounted={mounted}
+        theme={theme}
+        cycleTheme={cycleTheme}
+        ThemeIcon={ThemeIcon}
+        go={go}
+      >
+        {children}
+      </ShellFrame>
+    </DataModeProvider>
+  );
+}
 
+function DataSourceToggle() {
+  const { source, setSource } = useDataMode();
+  return (
+    <div
+      className="ml-auto flex items-center rounded-lg border border-border p-0.5"
+      role="group"
+      aria-label="Data source"
+    >
+      {(["api", "demo"] as const).map((value) => (
+        <button
+          key={value}
+          type="button"
+          aria-pressed={source === value}
+          className={cn(
+            "rounded-md px-2 py-1 text-xs font-medium",
+            source === value ? "bg-foreground text-background" : "text-muted-foreground",
+          )}
+          onClick={() => setSource(value)}
+        >
+          {value === "api" ? "API" : "Demo"}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ShellFrame({
+  children,
+  pathname,
+  publicDemo,
+  open,
+  setOpen,
+  prefsOpen,
+  setPrefsOpen,
+  navigating,
+  mounted,
+  theme,
+  cycleTheme,
+  ThemeIcon,
+  go,
+}: {
+  children: ReactNode;
+  pathname: string;
+  publicDemo: boolean;
+  open: boolean;
+  setOpen: Dispatch<SetStateAction<boolean>>;
+  prefsOpen: boolean;
+  setPrefsOpen: Dispatch<SetStateAction<boolean>>;
+  navigating: boolean;
+  mounted: boolean;
+  theme: string | undefined;
+  cycleTheme: () => void;
+  ThemeIcon: typeof Moon;
+  go: (href: string) => void;
+}) {
+  const { prefs } = usePrefs();
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
       <a
@@ -106,12 +193,25 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <TopLink key={item.href} item={item} pathname={pathname} />
               ))}
             </div>
-            <OperateMoreMenu items={OPS.slice(6)} pathname={pathname} />
+            <MoreMenu
+              pathname={pathname}
+              themeLabel={mounted ? (theme ?? "system") : "system"}
+              onCycleTheme={cycleTheme}
+              onOpenPrefs={() => setPrefsOpen(true)}
+              onOpenSearch={() => setOpen(true)}
+            />
           </nav>
+          <DataSourceToggle />
+          <Link
+            href={businessRouteFor(pathname)}
+            className="hidden rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground sm:inline"
+          >
+            Business view
+          </Link>
           <Button
             variant="outline"
             size="sm"
-            className="ml-auto gap-2 text-muted-foreground"
+            className="gap-2 text-muted-foreground"
             onClick={() => setOpen(true)}
           >
             <Command className="size-3.5" />
@@ -140,7 +240,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           >
             <Settings2 className="size-3.5" />
           </Button>
-          {process.env.NEXT_PUBLIC_PUBLIC_DEMO === "1" ? (
+          {publicDemo || publicDemoEnabled(process.env.NEXT_PUBLIC_PUBLIC_DEMO) ? (
             <Pill tone="neutral">Public demo</Pill>
           ) : (
             <form action={signOut}>
@@ -225,100 +325,6 @@ export function AppShell({ children }: { children: ReactNode }) {
       </CommandDialog>
 
       <ControlDock />
-    </div>
-  );
-}
-
-function isNavActive(href: string, pathname: string) {
-  return href === "/" ? pathname === "/" : pathname.startsWith(href);
-}
-
-function OperateMoreMenu({ items, pathname }: { items: NavItem[]; pathname: string }) {
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-  const buttonRef = useRef<HTMLButtonElement>(null);
-  const menuId = useId();
-  const routeActive = items.some((item) => isNavActive(item.href, pathname));
-
-  useEffect(() => {
-    setOpen(false);
-  }, [pathname]);
-
-  useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) {
-        setOpen(false);
-      }
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setOpen(false);
-        buttonRef.current?.focus();
-      }
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open]);
-
-  return (
-    <div ref={rootRef} className="relative shrink-0">
-      <button
-        ref={buttonRef}
-        type="button"
-        aria-expanded={open}
-        aria-haspopup="menu"
-        aria-controls={menuId}
-        onClick={() => setOpen((value) => !value)}
-        className={cn(
-          "inline-flex items-center gap-1 rounded-md px-2 py-1 text-[12px] transition-colors",
-          routeActive
-            ? "bg-secondary text-foreground"
-            : open
-              ? "bg-muted text-foreground"
-              : "text-muted-foreground hover:text-foreground",
-        )}
-      >
-        More
-        <ChevronDown
-          className={cn("size-3 transition-transform", open && "rotate-180")}
-          strokeWidth={1.75}
-        />
-      </button>
-      {open ? (
-        <div
-          id={menuId}
-          role="menu"
-          aria-label="More operate pages"
-          className="absolute left-0 top-full z-50 mt-1 min-w-44 rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-md"
-        >
-          {items.map((item) => {
-            const active = isNavActive(item.href, pathname);
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                role="menuitem"
-                aria-current={active ? "page" : undefined}
-                onClick={() => setOpen(false)}
-                className={cn(
-                  "flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] transition-colors",
-                  active
-                    ? "bg-secondary text-foreground"
-                    : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
-                )}
-              >
-                <item.icon className="size-3.5 shrink-0" strokeWidth={1.75} />
-                {item.label}
-              </Link>
-            );
-          })}
-        </div>
-      ) : null}
     </div>
   );
 }

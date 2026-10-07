@@ -1,4 +1,4 @@
-.PHONY: help setup lint format test core-up core-down db-init db-reset seed seed-smoke db-check export-raw spark-demo
+.PHONY: help setup lint format test core-up core-down db-init db-reset seed seed-smoke db-check export-raw spark-demo clean-clone-check frontend-check
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "%-14s %s\n", $$1, $$2}'
@@ -15,6 +15,16 @@ format: ## Format code with Ruff
 
 test: ## Run the test suite
 	uv run pytest
+
+clean-clone-check: ## Validate a fresh checkout can install and lint/typecheck (no Docker)
+	@test -f pyproject.toml && test -f uv.lock && test -f frontend/package-lock.json
+	uv sync --all-groups
+	uv run ruff check .
+	uv run pytest -q -m unit
+	cd frontend && npm ci && npm run typecheck && npm test
+
+frontend-check: ## Frontend typecheck + vitest
+	cd frontend && npm run typecheck && npm test
 
 core-up: ## Start PostgreSQL (compose core profile)
 	docker compose --profile core up -d
@@ -51,7 +61,7 @@ bronze: ## Phase 4: load Bronze Delta tables from raw exports
 silver: ## Phase 4: build Silver tables (cleans + quarantine) from Bronze
 	uv run python -m quickcart.lakehouse.pipeline silver
 
-gold: ## Phase 4: build the five Gold marts from Silver
+gold: ## Phase 4 + B6: build Gold marts (core five + business scorecard/margin/…) from Silver
 	uv run python -m quickcart.lakehouse.pipeline gold
 
 lakehouse: ## Phase 4: full Bronze -> Silver -> Gold pipeline (stops on quality-gate failure)

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { ApiBanner } from "@/components/api-banner";
 import { Pill } from "@/components/pill";
 import { ProposalCard, PROPOSAL_STATUS_TONE } from "@/components/proposal-card";
-import { EmptyState, Loading } from "@/components/states";
+import { EmptyState, ErrorState, Loading } from "@/components/states";
 import { Card } from "@/components/ui/card";
 import {
   Sheet,
@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { apiGetJson } from "@/lib/api";
-import { DEMO_PROPOSALS } from "@/lib/demo";
+import { useDataMode } from "@/lib/data-mode";
 import { formatDateTime } from "@/lib/format";
 import { useApiData } from "@/lib/use-api";
 import type { AuditEntry, Proposal, ProposalStatus } from "@/lib/types";
@@ -47,10 +47,26 @@ function scopeText(scope: Proposal["entity_scope"]): string {
 }
 
 function AuditTrail({ proposalId, refreshKey }: { proposalId: number; refreshKey: number }) {
+  const { source } = useDataMode();
   const [entries, setEntries] = useState<AuditEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (source === "demo") {
+      setEntries([
+        {
+          audit_id: proposalId,
+          proposal_id: proposalId,
+          from_status: null,
+          to_status: "PENDING",
+          actor: "demo",
+          detail: "Bundled fixture. No live audit trail.",
+          created_at: "2026-09-22T18:39:02Z",
+        },
+      ]);
+      setError(null);
+      return;
+    }
     let cancelled = false;
     setEntries(null);
     setError(null);
@@ -64,7 +80,7 @@ function AuditTrail({ proposalId, refreshKey }: { proposalId: number; refreshKey
     return () => {
       cancelled = true;
     };
-  }, [proposalId, refreshKey]);
+  }, [proposalId, refreshKey, source]);
 
   if (error) {
     return <p className="text-xs text-muted-foreground">Audit trail unavailable ({error}).</p>;
@@ -101,8 +117,7 @@ export function ProposalsBoard() {
   const [openId, setOpenId] = useState<number | null>(null);
   const [auditRefresh, setAuditRefresh] = useState(0);
 
-  const all = useApiData<Proposal[]>("/api/v1/proposals", DEMO_PROPOSALS, 30_000);
-  const demo = all.mode !== "live";
+  const all = useApiData<Proposal[]>("/api/v1/proposals", 30_000);
 
   const rows = (all.data ?? []).filter((p) => filter === "ALL" || p.status === filter);
   const open =
@@ -118,7 +133,7 @@ export function ProposalsBoard() {
 
   return (
     <>
-      {demo ? <ApiBanner mode={all.mode} error={all.error} /> : null}
+      <ApiBanner mode={all.mode} error={all.error} />
 
       <Tabs
         value={filter}
@@ -135,7 +150,9 @@ export function ProposalsBoard() {
         </TabsList>
       </Tabs>
 
-      {all.data === null ? (
+      {all.data === null && all.error ? (
+        <ErrorState message={all.error} />
+      ) : all.data === null ? (
         <Loading label="Loading proposals…" />
       ) : rows.length === 0 ? (
         <EmptyState
@@ -224,7 +241,7 @@ export function ProposalsBoard() {
               <div className="space-y-5 px-4 pb-6">
                 <ProposalCard
                   proposal={open}
-                  demo={demo}
+                  demo={all.mode === "demo"}
                   onChanged={() => {
                     all.reload();
                     setAuditRefresh((n) => n + 1);

@@ -2,12 +2,21 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { signIn } from "@/app/login/actions";
+import { demoSignIn, signIn, type SignInResult } from "@/app/login/actions";
 import { FloorShader } from "@/components/floor-shader";
 import { API_BASE } from "@/lib/api";
 import { ALL_PAGES } from "@/lib/nav";
 import { formatCompactINR, formatNumber, formatPercent } from "@/lib/format";
 import type { Kpis } from "@/lib/types";
+
+type DemoPersona = {
+  persona: string;
+  label: string;
+  experience: "business" | "ops";
+  display_name: string;
+  blurb: string;
+  can_approve: boolean;
+};
 
 const NAV = ["Operate", "Live", "ML", "Gold", "Agent", "Trust"];
 const STACK = ["PostgreSQL", "Delta", "Redpanda", "FastAPI"];
@@ -19,6 +28,17 @@ export function LoginScreen() {
   const [booting, setBooting] = useState(false);
   const [step, setStep] = useState(0);
   const [kpis, setKpis] = useState<Kpis | null>(null);
+  const [personas, setPersonas] = useState<DemoPersona[]>([]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    // Same-origin proxy (next.config rewrite) → FastAPI /api/v1/auth/demo-personas.
+    fetch("/qc-api/v1/auth/demo-personas", { signal: controller.signal, cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data: DemoPersona[]) => setPersonas(Array.isArray(data) ? data : []))
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -31,10 +51,7 @@ export function LoginScreen() {
     return () => controller.abort();
   }, []);
 
-  async function onSubmit(formData: FormData) {
-    setError(null);
-    setPending(true);
-    const result = await signIn(formData);
+  async function finish(result: SignInResult) {
     if (!result.ok) {
       setPending(false);
       setError(result.error);
@@ -48,6 +65,18 @@ export function LoginScreen() {
     }
     router.push("/");
     router.refresh();
+  }
+
+  async function onSubmit(formData: FormData) {
+    setError(null);
+    setPending(true);
+    await finish(await signIn(formData));
+  }
+
+  async function onDemo(persona: string) {
+    setError(null);
+    setPending(true);
+    await finish(await demoSignIn(persona));
   }
 
   const current = ALL_PAGES[step];
@@ -112,13 +141,14 @@ export function LoginScreen() {
               <form id="sign-in" action={onSubmit} className="mt-8 max-w-md space-y-3">
                 <div className="grid gap-3 sm:grid-cols-2">
                   <label className="block">
-                    <span className="sr-only">Username</span>
+                    <span className="sr-only">Email</span>
                     <input
-                      name="username"
+                      name="email"
+                      type="text"
                       autoComplete="username"
                       required
                       autoFocus
-                      placeholder="Username"
+                      placeholder="Email"
                       className="h-11 w-full border border-white/25 bg-black/50 px-3 text-sm outline-none placeholder:text-white/40 focus:border-[#C6F53A]"
                     />
                   </label>
@@ -146,6 +176,32 @@ export function LoginScreen() {
                 >
                   {pending ? "Checking…" : "Enter console"}
                 </button>
+                {personas.length > 0 ? (
+                  <div className="pt-4">
+                    <p className="text-[11px] tracking-[0.14em] text-white/45">
+                      OR EXPLORE AS A DEMO PERSONA
+                    </p>
+                    <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+                      {personas.map((persona) => (
+                        <li key={persona.persona}>
+                          <button
+                            type="button"
+                            disabled={pending}
+                            onClick={() => onDemo(persona.persona)}
+                            title={persona.blurb}
+                            className="w-full border border-white/25 bg-black/40 px-3 py-2 text-left text-sm text-white/90 hover:border-[#C6F53A] disabled:opacity-60"
+                          >
+                            <span className="block font-medium">{persona.label}</span>
+                            <span className="block text-[11px] text-white/50">
+                              {persona.experience === "business" ? "Business" : "Operations"}
+                              {persona.can_approve ? " · can approve" : ""}
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
               </form>
             )}
           </section>

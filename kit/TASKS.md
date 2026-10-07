@@ -61,24 +61,24 @@ Use this file as the execution tracker. Check items only after tests/acceptance 
 
 ## Phase 4 — Medallion MVP
 
-- [ ] Configure Delta
-- [ ] Bronze orders
-- [ ] Bronze customers
-- [ ] Bronze products
-- [ ] Bronze inventory
-- [ ] Bronze deliveries
-- [ ] Silver orders
-- [ ] Silver customers
-- [ ] Silver products
-- [ ] Silver inventory
-- [ ] Silver deliveries
-- [ ] quarantine output
-- [ ] Gold store hourly metrics
-- [ ] Gold customer 360
-- [ ] Gold inventory health
-- [ ] Gold delivery performance
-- [ ] Gold product performance
-- [ ] idempotent pipeline test
+- [x] Configure Delta
+- [x] Bronze orders
+- [x] Bronze customers
+- [x] Bronze products
+- [x] Bronze inventory
+- [x] Bronze deliveries
+- [x] Silver orders
+- [x] Silver customers
+- [x] Silver products
+- [x] Silver inventory
+- [x] Silver deliveries
+- [x] quarantine output
+- [x] Gold store hourly metrics
+- [x] Gold customer 360
+- [x] Gold inventory health
+- [x] Gold delivery performance
+- [x] Gold product performance
+- [x] idempotent pipeline test
 
 ## Phase 5 — Quality + optimization
 
@@ -183,6 +183,9 @@ Use this file as the execution tracker. Check items only after tests/acceptance 
 - [x] bounded loop
 - [x] agent traces
 - [x] agent evaluation suite
+- [x] Gemini-first agent LLM with heuristic classify skip
+- [x] Gold tool TTL cache
+- [x] SSE agent chat stream + live console
 
 ## Phase 14 — FastAPI + actions
 
@@ -212,3 +215,87 @@ Use this file as the execution tracker. Check items only after tests/acceptance 
 - [ ] agent evaluation report
 - [x] final end-to-end demo script
 - [ ] final clean-clone validation
+
+## Phase 16 — Business Experience
+
+### B0 — Governance
+- [x] Design spec `docs/superpowers/specs/2026-10-07-business-experience-design.md`
+- [x] PRD personas P5–P9 and FR-033–FR-045
+- [x] ADR-002 business experience + RBAC
+- [x] ADR-003 serving read model
+- [x] ADR-004 Gemini opt-in assistant + Live voice
+- [x] Phase 16 section in `kit/03_IMPLEMENTATION_PLAN.md`
+- [x] Phase 16 checklist in `kit/TASKS.md`
+
+### B1 — Identity & RBAC
+- [x] `V007__identity.sql` (users, roles, permissions, scopes, preferences, sessions, audit)
+- [x] `src/quickcart/identity/` package
+- [x] `get_principal` / `require_permission` / `scope_filter` API deps
+- [x] Auth routes + JWT httpOnly session cookie
+- [x] Seeded demo user per persona
+- [x] Approver bound to principal (not free-text)
+- [x] Frontend JWT middleware + role-based landing
+- [x] `/qc-api` same-origin rewrite
+- [x] RBAC matrix + scope-leak tests
+
+### B2 — Semantic registry & serving
+- [x] `src/quickcart/semantics/metrics.yaml` + registry
+- [x] `V008__serving_read_model.sql`
+- [x] Serving snapshot job after gold refresh
+- [x] Business API `/api/v1/b/*` with `MetricValue`
+- [x] Metric explain templates (deterministic)
+- [x] Measure `/b/today` local p95 (`python -m quickcart.business.bench_today`)
+
+### B3 — Business UI shell
+- [x] Ops routes under `app/(ops)/` (URLs unchanged)
+- [x] `app/(business)/b` layout + BusinessShell + nav
+- [x] ExperienceSwitcher
+- [x] 7-step onboarding + getting-started checklist
+- [x] Today, Stores, Store detail, Products, Delivery, Money, Customers, Actions, Learn, Settings
+- [x] Journey engine + journeys A–C
+- [x] Plain-language formatters (₹ L/Cr, IST)
+- [x] Per-persona demo fixtures
+- [x] Vitest setup for business/assistant helpers
+
+### B4 — Assistant v2 (text)
+- [x] Migrate GeminiLLM to `google-genai`
+- [x] Native function-calling loop (Ollama keeps pipeline)
+- [x] RBAC/scoped ToolRegistry + business tools
+- [x] AnswerDraft cards + provenance check
+- [x] Real token streaming + card/followup SSE events
+- [x] Session memory with ownership checks
+- [x] ⌘K Ask mode + Ask-about-this
+- [x] Business eval set (`business_eval.yaml`)
+
+### B5 — Voice (Matrix Orb + Gemini Live)
+- [x] Vendor Matrix Orb (+ speaking state, levelSource, rareui credit)
+- [x] VoiceCharacter SVG face over orb
+- [x] `POST /api/v1/voice/session` ephemeral tokens
+- [x] PCM capture worklet + live client + audio player (barge-in)
+- [x] Tool bridge to `/assistant/tools/{name}`
+- [x] Voice state machine + session resumption / 15-min UX
+- [x] Fallbacks when key/mic/WS unavailable
+- [x] Fake Live socket tests
+
+### B6 — Data wave 1
+- [x] `V009`–`V013` migrations (costs, targets, refunds/wastage, promo redemptions, ratings/NPS)
+- [x] Simulator `business.py` generators
+- [x] Silver + Gold marts (scorecard, margin, category, wastage, customer health, promo)
+- [x] Targets screen + Money margin view
+- [x] Journey D (promo)
+
+### B7 — Data wave 2 + actions
+- [x] `V014` alerts/notifications engine + notification centre
+- [x] `V015` suppliers / POs / GRN
+- [x] `V016` rider shifts
+- [x] `V017` proposals v2 executors + saved reports/digests (Mailpit)
+- [x] `V018` CDC publication for new tables
+- [x] Journey E (weekly review)
+
+### B8 — Hardening
+- [x] Playwright persona login/onboarding/Today/assistant (+ voice turn)
+- [x] ESLint + typecheck in CI
+- [x] Accessibility pass (WCAG AA, reduced motion)
+- [x] Learning notes / runbook updates
+- [x] Clean-clone validation
+- [x] `uv run ruff check .` and `uv run pytest` green

@@ -41,13 +41,14 @@ def run_gold(spark: SparkSession, root: Path | None = None) -> dict[str, int]:
         )
     }
 
+    hourly = MARTS["gold_store_hourly_metrics"](
+        silver["silver_orders"],
+        silver["silver_deliveries"],
+        silver["silver_payments"],
+        silver["silver_riders"],
+    )
     outputs = {
-        "gold_store_hourly_metrics": MARTS["gold_store_hourly_metrics"](
-            silver["silver_orders"],
-            silver["silver_deliveries"],
-            silver["silver_payments"],
-            silver["silver_riders"],
-        ),
+        "gold_store_hourly_metrics": hourly,
         "gold_customer_360": MARTS["gold_customer_360"](
             silver["silver_orders"], silver["silver_order_items"], silver["silver_products"]
         ),
@@ -62,7 +63,28 @@ def run_gold(spark: SparkSession, root: Path | None = None) -> dict[str, int]:
         "gold_product_performance": MARTS["gold_product_performance"](
             silver["silver_order_items"], silver["silver_products"], silver["silver_orders"]
         ),
+        "gold_store_scorecard_daily": MARTS["gold_store_scorecard_daily"](hourly),
+        "gold_margin_daily": MARTS["gold_margin_daily"](
+            silver["silver_orders"], silver["silver_order_items"]
+        ),
+        "gold_category_daily": MARTS["gold_category_daily"](
+            silver["silver_orders"], silver["silver_order_items"], silver["silver_products"]
+        ),
+        "gold_customer_health_daily": MARTS["gold_customer_health_daily"](
+            silver["silver_orders"],
+            _silver_optional(spark, root, "silver_order_ratings"),
+        ),
+        "gold_promo_daily": MARTS["gold_promo_daily"](silver["silver_orders"]),
     }
+
+    wastage = _silver_optional(spark, root, "silver_wastage_events")
+    if wastage is not None:
+        outputs["gold_wastage_daily"] = MARTS["gold_wastage_daily"](wastage)
+    else:
+        outputs["gold_wastage_daily"] = spark.createDataFrame(
+            [],
+            "day: date, store_id: bigint, units: bigint, cost: decimal(18,2), events: int",
+        )
 
     counts: dict[str, int] = {}
     for table, df in outputs.items():

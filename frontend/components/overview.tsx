@@ -5,26 +5,14 @@ import { ArrowUpRight, Radio } from "lucide-react";
 import { useEffect, useState } from "react";
 import { ApiBanner } from "@/components/api-banner";
 import { PageHeader } from "@/components/page-header";
-import { Pill } from "@/components/pill";
 import { RefreshIndicator } from "@/components/refresh-indicator";
 import { buildActivityLog } from "@/lib/activity-log";
+import { useDataMode } from "@/lib/data-mode";
+import { DEMO_ACTIVITY_LOG } from "@/lib/demo";
 import { formatCompactINR, formatINR, formatNumber, formatPercent } from "@/lib/format";
 import type { ApiMode } from "@/lib/api";
 import { useApiData } from "@/lib/use-api";
 import { useLiveStream } from "@/lib/use-live-stream";
-import {
-  DEMO_ACTIVE_DELIVERIES,
-  DEMO_ACTIVITY_LOG,
-  DEMO_ANOMALIES,
-  DEMO_FORECAST_MAPE,
-  DEMO_INVENTORY_RISKS,
-  DEMO_KPIS,
-  DEMO_OPEN_TICKETS,
-  DEMO_PAYMENT_FAILURE_RATE,
-  DEMO_PROPOSALS,
-  DEMO_STORES,
-  DEMO_TREND,
-} from "@/lib/demo";
 import type {
   AnomalyRow,
   InventoryRiskRow,
@@ -42,31 +30,7 @@ import {
   OrdersGmvTrendChart,
   StoreGmvChart,
 } from "@/components/home/home-charts";
-import { TeamLensTabs, useTeamLens, visibleFor, type TeamLens } from "@/components/home/team-lens";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-
-const ILLUSTRATIVE_KPIS: Array<{
-  id: string;
-  label: string;
-  value: string;
-  hint: string;
-  teams: TeamLens[];
-}> = [
-  {
-    id: "open_tickets",
-    label: "Open tickets",
-    value: formatNumber(DEMO_OPEN_TICKETS),
-    hint: "support queue",
-    teams: ["support", "exec"],
-  },
-  {
-    id: "forecast_mape",
-    label: "Forecast MAPE",
-    value: formatPercent(DEMO_FORECAST_MAPE),
-    hint: "demand model",
-    teams: ["ml", "data"],
-  },
-];
+import { TeamLensTabs, useTeamLens } from "@/components/home/team-lens";
 
 const REFRESH_MS = 30_000;
 
@@ -84,38 +48,29 @@ function useCountdown(lastUpdated: Date | null): number | null {
 export function OverviewClient() {
   const [team, setTeam] = useTeamLens();
 
-  const kpis = useApiData<Kpis>("/api/v1/overview/kpis", DEMO_KPIS, REFRESH_MS);
-  const trend = useApiData<OrderTrendRow[]>("/api/v1/trends/orders", DEMO_TREND, REFRESH_MS);
-  const stores = useApiData<StoreRow[]>("/api/v1/stores", DEMO_STORES, REFRESH_MS);
-  const risks = useApiData<InventoryRiskRow[]>(
-    "/api/v1/inventory/risks",
-    DEMO_INVENTORY_RISKS,
-    REFRESH_MS,
-  );
-  const anomalies = useApiData<AnomalyRow[]>("/api/v1/anomalies", DEMO_ANOMALIES, REFRESH_MS);
-  const proposals = useApiData<Proposal[]>("/api/v1/proposals", DEMO_PROPOSALS, REFRESH_MS);
+  const kpis = useApiData<Kpis>("/api/v1/overview/kpis", REFRESH_MS);
+  const trend = useApiData<OrderTrendRow[]>("/api/v1/trends/orders", REFRESH_MS);
+  const stores = useApiData<StoreRow[]>("/api/v1/stores", REFRESH_MS);
+  const risks = useApiData<InventoryRiskRow[]>("/api/v1/inventory/risks", REFRESH_MS);
+  const anomalies = useApiData<AnomalyRow[]>("/api/v1/anomalies", REFRESH_MS);
+  const proposals = useApiData<Proposal[]>("/api/v1/proposals", REFRESH_MS);
   const live = useLiveStream();
+  const { source } = useDataMode();
 
   const countdown = useCountdown(kpis.lastUpdated);
   const modes: ApiMode[] = [kpis.mode, trend.mode, stores.mode, risks.mode, anomalies.mode, proposals.mode];
-  const pageMode: ApiMode = modes.includes("demo")
-    ? "demo"
-    : modes.includes("stale")
-      ? "stale"
-      : modes.includes("offline")
-        ? "offline"
-        : "live";
+  const pageMode: ApiMode = modes.includes("stale")
+    ? "stale"
+    : modes.every((mode) => mode === "live")
+      ? "live"
+      : modes.every((mode) => mode === "demo")
+        ? "demo"
+        : "offline";
 
-  const kpiLoading = kpis.data === null;
+  const kpiLoading = kpis.data === null && !kpis.error;
 
-  const activeDeliveries =
-    live.mode === "live" || live.mode === "stale"
-      ? live.snapshot?.active_deliveries ?? DEMO_ACTIVE_DELIVERIES
-      : DEMO_ACTIVE_DELIVERIES;
-  const paymentFailureRate =
-    live.mode === "live" || live.mode === "stale"
-      ? live.snapshot?.payment_failure_rate_15m ?? DEMO_PAYMENT_FAILURE_RATE
-      : DEMO_PAYMENT_FAILURE_RATE;
+  const activeDeliveries = live.snapshot?.active_deliveries ?? null;
+  const paymentFailureRate = live.snapshot?.payment_failure_rate_15m ?? null;
 
   const pendingProposals = (proposals.data ?? []).filter((p) => p.status === "PENDING").length;
   const stockoutStores = new Set(
@@ -165,16 +120,16 @@ export function OverviewClient() {
         {
           id: "active_deliveries",
           label: "Active deliveries",
-          value: formatNumber(activeDeliveries),
+          value: activeDeliveries == null ? "—" : formatNumber(activeDeliveries),
           hint: "in flight now",
           teams: ["ops", "support", "exec"],
         },
         {
           id: "payment_failure_rate",
           label: "Payment failures",
-          value: formatPercent(paymentFailureRate),
+          value: paymentFailureRate == null ? "—" : formatPercent(paymentFailureRate),
           hint: "last 15m",
-          tone: paymentFailureRate > 0.06 ? "critical" : "default",
+          tone: paymentFailureRate != null && paymentFailureRate > 0.06 ? "critical" : "default",
           teams: ["ops", "support", "exec"],
         },
         {
@@ -220,15 +175,23 @@ export function OverviewClient() {
     : [];
 
   const logLoading =
-    live.snapshot === null && anomalies.data === null && proposals.data === null && live.pipeline === null;
+    live.snapshot === null &&
+    anomalies.data === null &&
+    proposals.data === null &&
+    live.pipeline === null &&
+    !live.error &&
+    !anomalies.error &&
+    !proposals.error;
   const liveLogEntries = buildActivityLog(
-    live.mode === "demo" ? null : live.snapshot,
-    live.mode === "demo" ? null : live.pipeline,
+    live.snapshot,
+    live.pipeline,
     anomalies.mode === "live" || anomalies.mode === "stale" ? anomalies.data : null,
     proposals.mode === "live" || proposals.mode === "stale" ? proposals.data : null,
   );
-  const activity = presentActivityLog(pageMode, live.mode, liveLogEntries, DEMO_ACTIVITY_LOG);
-  const visibleIllustrative = ILLUSTRATIVE_KPIS.filter((item) => visibleFor(team, item.teams));
+  const activity =
+    source === "demo"
+      ? { entries: DEMO_ACTIVITY_LOG, source: "demo" as const }
+      : presentActivityLog(liveLogEntries);
 
   return (
     <>
@@ -236,7 +199,12 @@ export function OverviewClient() {
         title="Overview"
         description="Ops command center — Gold marts, the live stream and the agent's proposal queue, through the FastAPI boundary."
       >
-        <RefreshIndicator mode={kpis.mode} lastUpdated={kpis.lastUpdated} countdown={countdown} />
+        <RefreshIndicator
+          mode={kpis.mode}
+          lastUpdated={kpis.lastUpdated}
+          countdown={countdown}
+          error={kpis.error}
+        />
       </PageHeader>
 
       <div className="mb-4">
@@ -254,11 +222,13 @@ export function OverviewClient() {
             <div className="text-[11px] text-muted-foreground">
               {live.mode === "live"
                 ? "Streaming now"
-                : live.mode === "stale"
-                  ? "Showing last live data"
-                  : live.mode === "demo"
-                    ? "Demo data"
-                    : "Connecting"}
+                : live.mode === "demo"
+                  ? "Demo data"
+                  : live.mode === "stale"
+                    ? "Showing last live data"
+                    : live.error
+                      ? "Stream unreachable"
+                      : "Connecting"}
             </div>
           </div>
         </div>
@@ -285,50 +255,22 @@ export function OverviewClient() {
         <ArrowUpRight className="ml-auto size-4 text-muted-foreground" strokeWidth={1.75} />
       </Link>
 
-      {pageMode === "demo" || pageMode === "stale" ? (
-        <ApiBanner
-          mode={pageMode}
-          error={kpis.error ?? trend.error ?? stores.error ?? risks.error ?? anomalies.error ?? proposals.error}
-        />
-      ) : null}
+      <ApiBanner
+        mode={pageMode}
+        error={kpis.error ?? trend.error ?? stores.error ?? risks.error ?? anomalies.error ?? proposals.error}
+      />
 
       <KpiWall items={kpiItems} team={team} loading={kpiLoading} />
 
-      {visibleIllustrative.length > 0 ? (
-        <section className="mt-3" aria-labelledby="illustrative-kpis">
-          <h2 id="illustrative-kpis" className="mb-2 text-sm font-medium">
-            Illustrative
-          </h2>
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-            {visibleIllustrative.map((item) => (
-              <Card key={item.id} size="sm" className="gap-1">
-                <CardHeader>
-                  <CardTitle className="flex items-center justify-between gap-2 text-xs font-normal text-muted-foreground">
-                    <span>{item.label}</span>
-                    <Pill tone="amber">illustrative</Pill>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-semibold leading-none tracking-tight tabular-nums">
-                    {item.value}
-                  </div>
-                  <div className="mt-1.5 text-xs text-muted-foreground">{item.hint}</div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </section>
-      ) : null}
-
       <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-2">
-        <OrdersGmvTrendChart data={trend.data} loading={trend.data === null} />
-        <StoreGmvChart data={stores.data} loading={stores.data === null} />
-        <CancelLateDualLineChart data={stores.data} loading={stores.data === null} />
+        <OrdersGmvTrendChart data={trend.data} loading={trend.data === null && !trend.error} />
+        <StoreGmvChart data={stores.data} loading={stores.data === null && !stores.error} />
+        <CancelLateDualLineChart data={stores.data} loading={stores.data === null && !stores.error} />
         <LiveOrdersAreaChart
           data={live.snapshot?.orders_per_minute ?? null}
-          loading={live.snapshot === null}
+          loading={live.snapshot === null && !live.error}
         />
-        <InventoryRiskChart data={risks.data} loading={risks.data === null} />
+        <InventoryRiskChart data={risks.data} loading={risks.data === null && !risks.error} />
       </div>
 
       <div className="mt-3">

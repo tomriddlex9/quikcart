@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 
 export default function NotFound() {
   return (
-    <>
+    <main className="mx-auto w-full max-w-3xl space-y-6 p-6">
       <PageHeader
         title="Page not found"
         description="This route is not part of the QuickCart console."
@@ -19,6 +19,6 @@ export default function NotFound() {
           </Button>
         }
       />
-    </>
+    </main>
   );
 }

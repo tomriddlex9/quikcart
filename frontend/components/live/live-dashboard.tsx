@@ -19,7 +19,7 @@ import { OrderFeed } from "@/components/live/order-feed";
 import { PipelineStrip } from "@/components/live/pipeline-strip";
 import { PageHeader } from "@/components/page-header";
 import { Pill, StatusDot, type PillTone } from "@/components/pill";
-import { EmptyState, Loading, Skeleton } from "@/components/states";
+import { EmptyState, ErrorState, Loading, Skeleton } from "@/components/states";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { ApiMode } from "@/lib/api";
 import { formatCompactINR, formatINR, formatNumber, formatPercent } from "@/lib/format";
@@ -68,16 +68,18 @@ function AnimatedMetric({
   return <>{format(useAnimatedValue(value))}</>;
 }
 
-function streamTone(mode: ApiMode): PillTone {
+function streamTone(mode: ApiMode, failed: boolean): PillTone {
   if (mode === "live") return "teal";
-  if (mode === "stale" || mode === "demo") return "amber";
+  if (mode === "demo") return "neutral";
+  if (mode === "stale" || failed) return "amber";
   return "neutral";
 }
 
-function streamLabel(mode: ApiMode): string {
+function streamLabel(mode: ApiMode, failed: boolean): string {
   if (mode === "live") return "streaming";
-  if (mode === "stale") return "reconnecting";
   if (mode === "demo") return "demo data";
+  if (mode === "stale") return "reconnecting";
+  if (failed) return "unreachable";
   return "connecting";
 }
 
@@ -287,9 +289,10 @@ function StoreGrid({ snapshot }: { snapshot: LiveSnapshot }) {
 
 export function LiveDashboard() {
   const { snapshot, pipeline, mode, error } = useLiveStream();
-  const connecting = snapshot === null;
-  const headerMode = connecting ? "offline" : mode;
-  const tone = streamTone(headerMode);
+  const failed = snapshot === null && error != null;
+  const connecting = snapshot === null && !failed;
+  const headerMode = connecting || failed ? "offline" : mode;
+  const tone = streamTone(headerMode, failed);
 
   return (
     <>
@@ -299,16 +302,20 @@ export function LiveDashboard() {
       >
         <Pill tone={tone}>
           <StatusDot tone={tone} />
-          <span className={headerMode === "live" ? "live-dot" : undefined}>{streamLabel(headerMode)}</span>
+          <span className={headerMode === "live" ? "live-dot" : undefined}>
+            {streamLabel(headerMode, failed)}
+          </span>
         </Pill>
       </PageHeader>
 
-      {!connecting && (mode === "stale" || mode === "demo") ? (
-        <ApiBanner mode={mode} error={error} />
-      ) : null}
+      {mode === "demo" ? <ApiBanner mode="demo" /> : null}
+      {failed ? <ApiBanner mode="offline" error={error} /> : null}
+      {!connecting && !failed && mode === "stale" ? <ApiBanner mode={mode} error={error} /> : null}
 
       {connecting ? (
         <Loading label="Connecting to live stream…" />
+      ) : failed ? (
+        <ErrorState message={error ?? "Live stream unreachable"} />
       ) : snapshot ? (
         <LiveMetrics snapshot={snapshot} />
       ) : null}

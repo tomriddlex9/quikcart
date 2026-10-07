@@ -97,6 +97,36 @@ def run_timer_step(spark: SparkSession, root: Path) -> dict[str, dict[str, Any]]
     return result
 
 
+def run_serving_step(spark: SparkSession, root: Path) -> dict[str, Any] | None:
+    """Refresh the business serving read model after Gold (best effort).
+
+    A failure is recorded on the ``serving_snapshot`` heartbeat and logged but never stops
+    the live pipeline: the business API falls back to live SQL while serving is stale.
+    """
+    from quickcart.business.snapshot import run_serving_snapshot
+    from quickcart.db.connection import connect
+    from quickcart.lakehouse.readers import GoldReaders
+
+    try:
+        with connect() as conn:
+            run_id = run_serving_snapshot(conn, GoldReaders(spark, root))
+            row = conn.execute(
+                "SELECT source, rows_written FROM serving.snapshot_runs WHERE snapshot_run_id = %s",
+                (run_id,),
+            ).fetchone()
+        outcome = {"snapshot_run_id": run_id, "source": row[0], "rows_out": row[1]}
+        _success("serving_snapshot", rows_out=row[1], detail=outcome)
+        return outcome
+    except Exception as error:
+        _failure("serving_snapshot", error)
+        return None
+
+
+def _run_timer_cycle(spark: SparkSession, root: Path) -> None:
+    run_timer_step(spark, root)
+    run_serving_step(spark, root)
+
+
 def _timer_loop(
     spark: SparkSession,
     root: Path,
@@ -106,7 +136,7 @@ def _timer_loop(
 ) -> None:
     while not stop.is_set():
         try:
-            run_timer_step(spark, root)
+            _run_timer_cycle(spark, root)
         except BaseException as error:
             errors.append(error)
             stop.set()
@@ -201,7 +231,7 @@ def run_worker(*, once: bool = False) -> int:
             order_query.processAllAvailable()
             cdc_query.processAllAvailable()
             _process_progress(spark, root, order_query, cdc_query, seen_batches)
-            run_timer_step(spark, root)
+            _run_timer_cycle(spark, root)
             _success("worker", detail={"status": "once_complete"})
             return 0
 

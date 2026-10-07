@@ -1,18 +1,21 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { apiGetJson, type ApiMode, type ApiState } from "./api";
+import { apiGetJson, type ApiState } from "./api";
+import { useDataMode } from "./data-mode";
+import { demoPayload } from "./demo-payload";
 
 /**
- * Poll a GET endpoint. On success the real payload is used (mode "live");
- * after a live response, transient failures preserve that payload in "stale"
- * mode. Demo data is only used when the API has never answered successfully.
+ * Poll a GET endpoint. Success is mode "live". A later failure keeps the last
+ * payload as "stale". The first failure is "offline" with data null.
+ * Mode "demo" is only the header toggle: it returns a bundled fixture and
+ * does not call the network.
  */
 export function useApiData<T>(
   path: string | null,
-  demo: T,
   refreshMs?: number,
 ): ApiState<T> & { reload: () => void; tick: number } {
+  const { source } = useDataMode();
   const [state, setState] = useState<ApiState<T>>({
     mode: "offline",
     data: null,
@@ -20,13 +23,14 @@ export function useApiData<T>(
     lastUpdated: null,
   });
   const [tick, setTick] = useState(0);
-  const demoRef = useRef(demo);
-  demoRef.current = demo;
+  const inFlight = useRef(false);
 
   useEffect(() => {
+    if (source === "demo") return;
     let cancelled = false;
     const run = async () => {
-      if (cancelled || path === null) return;
+      if (cancelled || path === null || inFlight.current) return;
+      inFlight.current = true;
       try {
         const data = await apiGetJson<T>(path);
         if (!cancelled) {
@@ -38,14 +42,11 @@ export function useApiData<T>(
           setState((previous) =>
             previous.mode === "live" || previous.mode === "stale"
               ? { ...previous, mode: "stale", error }
-              : {
-                  mode: "demo",
-                  data: demoRef.current,
-                  error,
-                  lastUpdated: new Date(),
-                },
+              : { mode: "offline", data: null, error, lastUpdated: null },
           );
         }
+      } finally {
+        inFlight.current = false;
       }
     };
     void run();
@@ -55,7 +56,22 @@ export function useApiData<T>(
       cancelled = true;
       clearInterval(id);
     };
-  }, [path, refreshMs, tick]);
+  }, [path, refreshMs, tick, source]);
+
+  if (source === "demo") {
+    if (path === null) {
+      return { mode: "demo", data: null, error: null, lastUpdated: null, reload: () => {}, tick: 0 };
+    }
+    const fixture = demoPayload(path);
+    return {
+      mode: "demo",
+      data: fixture === undefined ? null : (fixture as T),
+      error: fixture === undefined ? "No demo fixture for this endpoint." : null,
+      lastUpdated: null,
+      reload: () => {},
+      tick: 0,
+    };
+  }
 
   return { ...state, reload: () => setTick((t) => t + 1), tick };
 }

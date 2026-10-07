@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { apiPostJson } from "@/lib/api";
 import { formatNumber, formatPercent } from "@/lib/format";
 import { subscribe } from "@/lib/sim-dock";
-import { DEMO_SIM_STATUS, type SimConfigPatch, type SimStatus } from "@/lib/sim-types";
+import type { SimConfigPatch, SimStatus } from "@/lib/sim-types";
 import { cn } from "@/lib/utils";
 import { useApiData } from "@/lib/use-api";
 
@@ -75,13 +75,9 @@ const SLIDERS: SliderSpec[] = [
  * with the next poll of `/api/v1/sim/status`.
  */
 export function ControlDock() {
-  const { data, mode, reload } = useApiData<SimStatus>(
-    "/api/v1/sim/status",
-    DEMO_SIM_STATUS,
-    STATUS_REFRESH_MS,
-  );
+  const { data, mode, error, reload } = useApiData<SimStatus>("/api/v1/sim/status", STATUS_REFRESH_MS);
   const [open, setOpen] = useState(false);
-  const [local, setLocal] = useState<SimStatus>(DEMO_SIM_STATUS);
+  const [local, setLocal] = useState<SimStatus | null>(null);
   const [pending, setPending] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const editingRef = useRef(false);
@@ -101,14 +97,24 @@ export function ControlDock() {
   useEffect(() => subscribe(() => setOpen(true)), []);
 
   const applyPatch = (patch: SimConfigPatch) => {
+    if (!local) return;
     editingRef.current = true;
-    setLocal((previous) => ({
-      state: { ...previous.state, ...patch },
-      impact: previous.impact,
-    }));
+    setLocal((previous) =>
+      previous
+        ? {
+            state: { ...previous.state, ...patch },
+            impact: previous.impact,
+          }
+        : previous,
+    );
     setPending(true);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(async () => {
+      if (mode === "demo") {
+        setPending(false);
+        editingRef.current = false;
+        return;
+      }
       const result = await apiPostJson<SimStatus>("/api/v1/sim/config", patch);
       setPending(false);
       editingRef.current = false;
@@ -120,13 +126,23 @@ export function ControlDock() {
   };
 
   const toggleRunning = async () => {
+    if (!local) return;
     const next = !local.state.running;
     editingRef.current = true;
-    setLocal((previous) => ({
-      ...previous,
-      state: { ...previous.state, running: next },
-    }));
+    setLocal((previous) =>
+      previous
+        ? {
+            ...previous,
+            state: { ...previous.state, running: next },
+          }
+        : previous,
+    );
     setPending(true);
+    if (mode === "demo") {
+      setPending(false);
+      editingRef.current = false;
+      return;
+    }
     const result = await apiPostJson<SimStatus>(next ? "/api/v1/sim/start" : "/api/v1/sim/stop", {});
     setPending(false);
     editingRef.current = false;
@@ -136,8 +152,10 @@ export function ControlDock() {
     reload();
   };
 
-  const running = local.state.running;
-  const effectiveOrdersPerMinute = local.state.orders_per_minute * local.state.burst_factor;
+  const running = local?.state.running ?? false;
+  const effectiveOrdersPerMinute = local
+    ? local.state.orders_per_minute * local.state.burst_factor
+    : null;
 
   return (
     <div className="fixed bottom-4 right-4 z-40 w-[min(22rem,calc(100vw-2rem))]">
@@ -153,8 +171,9 @@ export function ControlDock() {
           />
           <span className="text-sm font-medium">Simulator</span>
           <span className="ml-auto flex items-center gap-2 text-xs tabular-nums text-muted-foreground">
-            {mode === "demo" ? <span className="text-chart-3">demo</span> : null}
-            {formatNumber(Math.round(effectiveOrdersPerMinute))}/min
+            {mode === "demo" ? <span>demo</span> : null}
+            {mode === "offline" && error ? <span className="text-destructive">offline</span> : null}
+            {effectiveOrdersPerMinute == null ? "—" : `${formatNumber(Math.round(effectiveOrdersPerMinute))}/min`}
           </span>
           {open ? (
             <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" strokeWidth={1.75} />
@@ -163,11 +182,17 @@ export function ControlDock() {
           )}
         </button>
 
-        {open ? (
+        {open && !local ? (
+          <div className="border-t border-border px-3.5 py-3 text-xs text-muted-foreground">
+            {error ? `Simulator status unavailable (${error}).` : "Reading simulator status…"}
+          </div>
+        ) : null}
+
+        {open && local ? (
           <div className="border-t border-border px-3.5 py-3">
             <div className="flex items-center justify-between gap-2">
               <p className="text-xs text-muted-foreground">
-                ~{formatNumber(Math.round(effectiveOrdersPerMinute))} orders/min → Postgres →
+                ~{formatNumber(Math.round(effectiveOrdersPerMinute ?? 0))} orders/min → Postgres →
                 Debezium → Bronze
                 {local.impact.expected_cdc_lag_seconds_hint
                   ? ` (~${local.impact.expected_cdc_lag_seconds_hint.toFixed(0)}s CDC hop)`

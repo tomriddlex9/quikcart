@@ -3,7 +3,6 @@
 import { ChartShell } from "@/components/charts";
 import { Pill, type PillTone } from "@/components/pill";
 import { EmptyState, Skeleton } from "@/components/states";
-import type { ApiMode } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import type { ActivityLogEntry, ActivityLogLevel } from "@/lib/types";
 
@@ -13,30 +12,22 @@ const LEVEL_GLYPH: Record<ActivityLogLevel, string> = {
   error: "✕",
 };
 
-export type ActivityLogSource = "live" | "demo" | "empty";
+export type ActivityLogSource = "live" | "empty" | "demo";
 
 const SOURCE_PILL: Record<ActivityLogSource, { tone: PillTone; label: string }> = {
   live: { tone: "teal", label: "live" },
-  demo: { tone: "amber", label: "demo data" },
   empty: { tone: "neutral", label: "empty" },
+  demo: { tone: "neutral", label: "demo" },
 };
 
-/**
- * Demo narrative is only for a page that never went live.
- * A live or stale connection with nothing to merge stays empty.
- */
+/** Merged live events, or an empty log when nothing has arrived yet. */
 export function presentActivityLog(
-  pageMode: ApiMode,
-  liveMode: ApiMode,
   liveEntries: ActivityLogEntry[],
-  demoEntries: ActivityLogEntry[],
 ): { entries: ActivityLogEntry[]; source: ActivityLogSource } {
-  const connected = liveMode === "live" || liveMode === "stale";
   if (liveEntries.length > 0) {
     return { entries: liveEntries, source: "live" };
   }
-  if (connected || pageMode !== "demo") return { entries: [], source: "empty" };
-  return { entries: demoEntries, source: "demo" };
+  return { entries: [], source: "empty" };
 }
 
 export function ActivityLog({

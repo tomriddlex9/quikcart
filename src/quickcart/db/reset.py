@@ -18,6 +18,7 @@ log = structlog.get_logger(__name__)
 def reset_schema() -> None:
     with connect() as conn:
         with conn.transaction(), conn.cursor() as cur:
+            cur.execute("DROP SCHEMA IF EXISTS serving CASCADE")
             cur.execute("DROP SCHEMA public CASCADE")
             cur.execute("CREATE SCHEMA public")
             cur.execute("GRANT USAGE ON SCHEMA public TO public")

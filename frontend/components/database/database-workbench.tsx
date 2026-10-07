@@ -115,11 +115,7 @@ function TransformPanel({
 }) {
   const path =
     table && layer !== "raw" ? `/api/v1/layers/transforms/${encodeURIComponent(table)}` : null;
-  const state = useApiData<TransformsResponse>(
-    path,
-    { table: table ?? "", operations: [] },
-    0,
-  );
+  const state = useApiData<TransformsResponse>(path, 0);
   const ops = state.data?.operations ?? [];
 
   if (layer === "raw") {
@@ -132,7 +128,12 @@ function TransformPanel({
   if (!table) {
     return <p className="text-sm text-muted-foreground">Select a table to see its transforms.</p>;
   }
-  if (state.data === null && path !== null) return <Skeleton className="h-40 w-full" />;
+  if (state.data === null && path !== null) {
+    if (state.error) {
+      return <p className="text-sm text-destructive">Transform request failed: {state.error}</p>;
+    }
+    return <Skeleton className="h-40 w-full" />;
+  }
   if (ops.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
@@ -197,11 +198,7 @@ export function DatabaseWorkbench() {
   const initialTable = searchParams.get("table");
   const lineageState = useCatalogLineage();
 
-  const tablesState = useApiData<CatalogTablesResponse>(
-    "/api/v1/catalog/tables",
-    { tables: [] },
-    60_000,
-  );
+  const tablesState = useApiData<CatalogTablesResponse>("/api/v1/catalog/tables", 60_000);
   const [layer, setLayer] = useState<CatalogLayer | "lineage">(() => {
     if (initialLayer === "lineage") return "lineage";
     if (initialLayer && LAYERS.includes(initialLayer as CatalogLayer)) {
@@ -241,16 +238,7 @@ export function DatabaseWorkbench() {
     selectedTable && layer !== "lineage"
       ? `/api/v1/catalog/tables/${layer}/${encodeURIComponent(selectedTable.name)}/preview?limit=40`
       : null;
-  const previewState = useApiData<CatalogPreviewResponse>(
-    previewPath,
-    {
-      name: selectedTable?.name ?? "",
-      layer: (layer === "lineage" ? "bronze" : layer) as CatalogLayer,
-      columns: [],
-      rows: [],
-    },
-    0,
-  );
+  const previewState = useApiData<CatalogPreviewResponse>(previewPath, 0);
 
   return (
     <div className="space-y-4">
@@ -328,7 +316,9 @@ export function DatabaseWorkbench() {
                     ) : null}
                     <ScrollArea className="h-[24rem]">
                       <ul className="p-2">
-                        {tablesState.data === null ? (
+                        {tablesState.data === null && tablesState.error ? (
+                          <li className="px-3 py-6 text-xs text-destructive">{tablesState.error}</li>
+                        ) : tablesState.data === null ? (
                           <li className="p-2">
                             <Skeleton className="h-8 w-full" />
                           </li>
@@ -389,9 +379,12 @@ export function DatabaseWorkbench() {
                       ) : (
                         <Skeleton className="h-8 w-2/3" />
                       )}
+                      {previewState.error ? (
+                        <p className="text-xs text-destructive">Preview failed: {previewState.error}</p>
+                      ) : null}
                       <PreviewTable
                         preview={previewState.data}
-                        loading={previewState.data === null && previewPath !== null}
+                        loading={previewState.data === null && previewPath !== null && !previewState.error}
                       />
                     </CardContent>
                   </Card>

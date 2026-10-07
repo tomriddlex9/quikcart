@@ -2,12 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { API_BASE, apiGetJson, type ApiMode } from "@/lib/api";
-import {
-  DEMO_LIVE_PIPELINE,
-  DEMO_LIVE_SNAPSHOT,
-  type LivePipeline,
-  type LiveSnapshot,
-} from "@/lib/live-types";
+import { useDataMode } from "@/lib/data-mode";
+import { DEMO_LIVE_PIPELINE, DEMO_LIVE_SNAPSHOT, type LivePipeline, type LiveSnapshot } from "@/lib/live-types";
 
 const PIPELINE_POLL_MS = 5_000;
 const MAX_RECONNECT_MS = 10_000;
@@ -34,27 +30,44 @@ export function useLiveStream(): LiveStreamState {
   const hadPipeline = useRef(false);
   const streamHealthy = useRef(false);
   const pipelineHealthy = useRef(false);
+  const { source } = useDataMode();
 
   useEffect(() => {
+    if (source === "demo") {
+      setState({
+        snapshot: DEMO_LIVE_SNAPSHOT,
+        pipeline: DEMO_LIVE_PIPELINE,
+        mode: "demo",
+        error: null,
+      });
+      return;
+    }
+
+    hadSnapshot.current = false;
+    hadPipeline.current = false;
+    streamHealthy.current = false;
+    pipelineHealthy.current = false;
+    setState({ snapshot: null, pipeline: null, mode: "offline", error: null });
+
     let cancelled = false;
-    let source: EventSource | null = null;
+    let stream: EventSource | null = null;
     let reconnectTimer: number | null = null;
     let pipelineTimer: number | null = null;
     let reconnectAttempt = 0;
 
     const modeAfterFailure = (): ApiMode =>
-      hadSnapshot.current || hadPipeline.current ? "stale" : "demo";
+      hadSnapshot.current || hadPipeline.current ? "stale" : "offline";
 
     const connect = () => {
       if (cancelled) return;
-      source = new EventSource(`${API_BASE}/api/v1/live/stream`);
+      stream = new EventSource(`${API_BASE}/api/v1/live/stream`);
 
-      source.onopen = () => {
+      stream.onopen = () => {
         streamHealthy.current = true;
         reconnectAttempt = 0;
       };
 
-      source.onmessage = (event) => {
+      stream.onmessage = (event) => {
         try {
           const snapshot = JSON.parse(event.data) as LiveSnapshot;
           hadSnapshot.current = true;
@@ -75,13 +88,13 @@ export function useLiveStream(): LiveStreamState {
         }
       };
 
-      source.onerror = () => {
+      stream.onerror = () => {
         streamHealthy.current = false;
-        source?.close();
-        source = null;
+        stream?.close();
+        stream = null;
         setState((previous) => ({
           ...previous,
-          snapshot: hadSnapshot.current ? previous.snapshot : DEMO_LIVE_SNAPSHOT,
+          snapshot: hadSnapshot.current ? previous.snapshot : null,
           mode: modeAfterFailure(),
           error: "Live stream disconnected",
         }));
@@ -109,7 +122,7 @@ export function useLiveStream(): LiveStreamState {
         pipelineHealthy.current = false;
         setState((previous) => ({
           ...previous,
-          pipeline: hadPipeline.current ? previous.pipeline : DEMO_LIVE_PIPELINE,
+          pipeline: hadPipeline.current ? previous.pipeline : null,
           mode: modeAfterFailure(),
           error: errorMessage(error),
         }));
@@ -125,11 +138,11 @@ export function useLiveStream(): LiveStreamState {
 
     return () => {
       cancelled = true;
-      source?.close();
+      stream?.close();
       if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
       if (pipelineTimer !== null) window.clearTimeout(pipelineTimer);
     };
-  }, []);
+  }, [source]);
 
   return state;
 }

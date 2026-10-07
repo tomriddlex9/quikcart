@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Boxes,
   Filter as FilterIcon,
@@ -16,22 +16,23 @@ import {
   Terminal,
 } from "lucide-react";
 import { ApiBanner } from "@/components/api-banner";
-import { Pill } from "@/components/pill";
-import { Loading } from "@/components/states";
+import { ErrorState, Loading } from "@/components/states";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { apiGetJson, apiPostJson, type ApiMode } from "@/lib/api";
-import { applyCubeOperationLocally, CubeOperationError } from "@/lib/cube-transforms";
-import {
-  DEMO_CUBE_STATE,
-  type CubeCell,
-  type CubeOp,
-  type CubeOperateRequest,
-  type CubeState,
+import { applyCubeOperationLocally } from "@/lib/cube-transforms";
+import { useDataMode } from "@/lib/data-mode";
+import type {
+  CubeCell,
+  CubeDim,
+  CubeOp,
+  CubeOperateRequest,
+  CubeState,
 } from "@/lib/layer-cube-types";
+import { DEMO_CUBE_STATE } from "@/lib/layer-cube-types";
 import { formatNumber } from "@/lib/format";
 
 const DataCubeScene = dynamic(() => import("@/components/cube/data-cube-scene"), {
@@ -64,48 +65,59 @@ function formatMeasure(value: number, format: "int" | "currency" | "pct" | "floa
 }
 
 export function CubeConsole() {
-  const [state, setState] = useState<CubeState>(DEMO_CUBE_STATE);
+  const [state, setState] = useState<CubeState | null>(null);
   const [mode, setMode] = useState<ApiMode>("offline");
-  const [localSession, setLocalSession] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [applying, setApplying] = useState(false);
+  const [baseDimensions, setBaseDimensions] = useState<CubeDim[]>([]);
 
   const [activeOp, setActiveOp] = useState<CubeOp>("filter");
-  const [selectedDim, setSelectedDim] = useState<string>("store_city");
-  const [selectedMember, setSelectedMember] = useState<string>("Bengaluru");
+  const [selectedDim, setSelectedDim] = useState<string>("");
+  const [selectedMember, setSelectedMember] = useState<string>("");
   const [diceMembers, setDiceMembers] = useState<string[]>([]);
-  const [sqlText, setSqlText] = useState<string>("where store_city = 'Pune'");
+  const [sqlText, setSqlText] = useState<string>("");
   const [heightMeasure, setHeightMeasure] = useState("orders");
   const [colorMeasure, setColorMeasure] = useState("late_rate");
   const [hoverCell, setHoverCell] = useState<CubeCell | null>(null);
-
-  // The full dimension universe never shrinks in the UI's op pickers, even
-  // after a rollup/slice removes a dimension from the live cube — filter,
-  // dice, and drill all need to be able to name a dimension that's not
-  // currently present.
-  const baseDimensions = useRef(DEMO_CUBE_STATE.dimensions).current;
+  const { source } = useDataMode();
 
   useEffect(() => {
+    if (source === "demo") {
+      setState(DEMO_CUBE_STATE);
+      setBaseDimensions(DEMO_CUBE_STATE.dimensions);
+      const first = DEMO_CUBE_STATE.dimensions[0];
+      setSelectedDim(first?.name ?? "");
+      setSelectedMember(first?.members[0] ?? "");
+      setMode("demo");
+      setError(null);
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
+    setLoading(true);
     apiGetJson<CubeState>("/api/v1/cube/state")
       .then((data) => {
         if (cancelled) return;
         setState(data);
+        setBaseDimensions(data.dimensions);
+        const first = data.dimensions[0];
+        setSelectedDim(first?.name ?? "");
+        setSelectedMember(first?.members[0] ?? "");
         setMode("live");
         setLoading(false);
       })
       .catch((err: unknown) => {
         if (cancelled) return;
-        setState(DEMO_CUBE_STATE);
-        setMode("demo");
+        setState(null);
+        setMode("offline");
         setError(err instanceof Error ? err.message : "API unreachable");
         setLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [source]);
 
   const dimOptions = baseDimensions.map((d) => d.name);
   const memberOptions = baseDimensions.find((d) => d.name === selectedDim)?.members ?? [];
@@ -128,41 +140,42 @@ export function CubeConsole() {
   };
 
   const runOp = async (op: CubeOp) => {
+    if (!state) return;
     setApplying(true);
     setActiveOp(op);
     const request: CubeOperateRequest = { op, args: buildArgs(op), state };
+    if (source === "demo") {
+      try {
+        setState(applyCubeOperationLocally(request));
+        setMode("demo");
+        setError(null);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Operation failed.");
+      } finally {
+        setApplying(false);
+      }
+      return;
+    }
     try {
       const result = await apiPostJson<CubeState>("/api/v1/cube/operate", request);
       if (result.ok) {
         setState(result.data);
         setMode("live");
         setError(null);
-        setLocalSession(false);
       } else {
-        throw new Error(result.detail);
+        setError(result.detail);
       }
     } catch (err) {
-      try {
-        const next = applyCubeOperationLocally(request);
-        setState(next);
-        setMode("demo");
-        setLocalSession(op !== "reset");
-        setError(
-          err instanceof Error
-            ? `API unavailable (${err.message}); applied locally.`
-            : "API unavailable; applied locally.",
-        );
-      } catch (localErr) {
-        setError(localErr instanceof CubeOperationError ? localErr.message : "Operation failed.");
-      }
+      setError(err instanceof Error ? err.message : "Operation failed.");
     } finally {
       setApplying(false);
     }
   };
 
-  const measureNames = state.measures.map((m) => m.name);
+  const measureNames = state?.measures.map((m) => m.name) ?? [];
   const totals = useMemo(() => {
     const sums: Record<string, number> = {};
+    if (!state) return sums;
     for (const measure of state.measures) {
       const values = state.cells.map((c) => c.values[measure.name] ?? 0);
       sums[measure.name] =
@@ -173,9 +186,17 @@ export function CubeConsole() {
           : values.reduce((a, b) => a + b, 0);
     }
     return sums;
-  }, [state.cells, state.measures]);
+  }, [state]);
 
   if (loading) return <Loading label="Loading cube…" />;
+  if (!state) {
+    return (
+      <div className="space-y-4">
+        <ApiBanner mode="offline" error={error} />
+        <ErrorState message={error ?? "Cube API did not answer."} />
+      </div>
+    );
+  }
 
   const activeButton = OP_BUTTONS.find((b) => b.op === activeOp);
 
@@ -185,14 +206,10 @@ export function CubeConsole() {
 
       <Card size="sm">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-sm">
-            {state.title}
-            {localSession ? <Pill tone="amber">local session</Pill> : null}
-          </CardTitle>
+          <CardTitle className="flex items-center gap-2 text-sm">{state.title}</CardTitle>
           <CardDescription className="text-xs">
-            {state.cells.length} cells across {state.dimensions.map((d) => d.name).join(" × ")}.
-            Filter / slice / dice / rollup / drill / pivot / SQL — every op animates the cube and
-            works offline against the same demo fixture.
+            {state.cells.length} cells across {state.dimensions.map((d) => d.name).join(" × ") || "no dimensions"}.
+            Filter, slice, dice, rollup, drill, pivot, and SQL run against the live cube API.
           </CardDescription>
         </CardHeader>
         <CardContent>

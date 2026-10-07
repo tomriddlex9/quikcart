@@ -315,3 +315,21 @@ class GrokLLM:
         if isinstance(content, str) and content.strip():
             return content
         raise LLMError(f"grok returned an empty reply (model {self._model})")
+
+
+def select_agent_llm() -> LLMClient:
+    """Gemini, then Grok, then local Ollama — same priority as NL→SQL."""
+    settings = get_settings()
+    if settings.gemini_api_key:
+        return GeminiLLM(
+            model=settings.gemini_model,
+            base_url=settings.gemini_base_url,
+            api_key=settings.gemini_api_key,
+        )
+    if settings.xai_api_key:
+        return GrokLLM(
+            model=settings.xai_model,
+            base_url=settings.xai_base_url,
+            api_key=settings.xai_api_key,
+        )
+    return OllamaLLM()

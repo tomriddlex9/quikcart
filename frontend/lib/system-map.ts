@@ -260,10 +260,10 @@ export const MAP_NODES: MapNode[] = [
     sub: "this showcase",
     x: 1160, y: 430, w: 168, h: 58,
     phase: 15, phaseLabel: "Showcase", layer: "Serving",
-    role: "The page you are looking at: a typed operations console over the FastAPI contracts with labeled demo-data fallback and a live system map.",
+    role: "The page you are looking at: a typed operations console over the live FastAPI contracts and a live system map.",
     facts: [
       "App Router + TypeScript + Tailwind, charts via recharts",
-      "Polls the API every 30s; every fetch failure is labeled, never faked",
+      "Polls the API every 30s; a failed read stays empty or keeps the last live payload",
       "System map and tech grid generated from static repo-derived data",
     ],
   },

@@ -76,6 +76,10 @@ class GoldReaders:
             .orderBy(F.desc("gmv"))
         )
 
+    def store_hourly_metrics(self) -> DataFrame:
+        """All stores' hourly Gold metrics (serving snapshot input)."""
+        return self._gold("gold_store_hourly_metrics")
+
     def store_hourly(self, store_id: int) -> DataFrame:
         return (
             self._gold("gold_store_hourly_metrics")

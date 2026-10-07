@@ -3,7 +3,7 @@
 import { ChevronRight } from "lucide-react";
 import { ApiBanner } from "@/components/api-banner";
 import { Pill, StatusDot } from "@/components/pill";
-import { Skeleton } from "@/components/states";
+import { ErrorState, Skeleton } from "@/components/states";
 import {
   Accordion,
   AccordionContent,
@@ -12,7 +12,6 @@ import {
 } from "@/components/ui/accordion";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { DEMO_SYSTEM_STATUS } from "@/lib/demo";
 import { GOLD_MARTS, type GoldMart } from "@/lib/gold-marts";
 import { useApiData } from "@/lib/use-api";
 import type { SystemStatus } from "@/lib/types";
@@ -114,14 +113,21 @@ function MartRow({ mart, presenceValue }: { mart: GoldMart; presenceValue: unkno
 }
 
 export function GoldBrowser() {
-  const status = useApiData<SystemStatus>("/api/v1/system/status", DEMO_SYSTEM_STATUS, 30_000);
-  const demo = status.mode !== "live";
+  const status = useApiData<SystemStatus>("/api/v1/system/status", 30_000);
   const tables = status.data?.data_root_tables ?? {};
 
   const pipeline = GOLD_MARTS.filter((m) => m.family === "pipeline");
   const ml = GOLD_MARTS.filter((m) => m.family === "ml");
 
   if (status.data === null) {
+    if (status.error) {
+      return (
+        <div className="space-y-3">
+          <ApiBanner mode="offline" error={status.error} />
+          <ErrorState message={status.error} />
+        </div>
+      );
+    }
     return (
       <div className="space-y-3">
         <Skeleton className="h-[92px] rounded-xl" />
@@ -132,7 +138,7 @@ export function GoldBrowser() {
 
   return (
     <>
-      {demo ? <ApiBanner mode={status.mode} error={status.error} /> : null}
+      <ApiBanner mode={status.mode} error={status.error} />
 
       <div className="space-y-4">
         <Card size="sm">

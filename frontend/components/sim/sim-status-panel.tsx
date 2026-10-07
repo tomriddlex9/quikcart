@@ -5,7 +5,7 @@ import { Pill, StatusDot } from "@/components/pill";
 import { Button } from "@/components/ui/button";
 import { formatNumber } from "@/lib/format";
 import { openSimDock } from "@/lib/sim-dock";
-import { DEMO_SIM_STATUS, type SimStatus } from "@/lib/sim-types";
+import type { SimStatus } from "@/lib/sim-types";
 import { useApiData } from "@/lib/use-api";
 
 const STATUS_REFRESH_MS = 5_000;
@@ -16,11 +16,7 @@ const STATUS_REFRESH_MS = 5_000;
  * stop, or retune the simulator itself.
  */
 export function SimStatusPanel() {
-  const { data, mode } = useApiData<SimStatus>(
-    "/api/v1/sim/status",
-    DEMO_SIM_STATUS,
-    STATUS_REFRESH_MS,
-  );
+  const { data, error } = useApiData<SimStatus>("/api/v1/sim/status", STATUS_REFRESH_MS);
   const running = data?.state.running ?? false;
   const ordersPerMinute = data
     ? data.state.orders_per_minute * data.state.burst_factor
@@ -46,10 +42,11 @@ export function SimStatusPanel() {
             <span className="text-sm tabular-nums text-foreground">
               {formatNumber(Math.round(ordersPerMinute ?? 0))} orders/min
             </span>
-            {mode === "demo" ? <span className="text-xs text-chart-3">demo</span> : null}
           </>
         ) : (
-          <span className="text-sm text-muted-foreground">Checking simulator…</span>
+          <span className="text-sm text-muted-foreground">
+            {error ? "Simulator status unavailable" : "Checking simulator…"}
+          </span>
         )}
       </div>
       <Button type="button" size="sm" onClick={() => openSimDock()}>

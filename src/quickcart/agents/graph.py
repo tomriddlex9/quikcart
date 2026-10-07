@@ -104,6 +104,7 @@ class AgentState(TypedDict, total=False):
     trace_path: str | None
     started_at: str
     finished_at: str
+    principal: Any  # caller identity for RBAC/scope (None = offline/internal)
 
 
 class IntentClassification(BaseModel):
@@ -144,6 +145,12 @@ class AnswerDraft(BaseModel):
 # --------------------------------------------------------------------------- #
 # Deterministic helpers (query understanding + fallbacks)
 # --------------------------------------------------------------------------- #
+
+
+def _identity(state: AgentState) -> dict[str, Any]:
+    """RBAC kwargs for `ToolRegistry.execute`; empty when the turn is anonymous/internal."""
+    principal = state.get("principal")
+    return {"principal": principal} if principal is not None else {}
 
 
 def extract_store_id(query: str) -> int | None:
@@ -199,6 +206,17 @@ def _heuristic_intent(query: str) -> IntentClassification:
     else:
         intent = "unsupported"
     return IntentClassification(intent=intent, reasoning="heuristic fallback")
+
+
+def _heuristic_is_confident(query: str, classification: IntentClassification) -> bool:
+    """True when keyword rules already pin a domain — skip the classify LLM."""
+    if classification.intent in ("analytics", "policy", "prediction", "mixed"):
+        return True
+    lowered = query.lower()
+    off_domain = any(
+        k in lowered for k in ("favourite", "favorite", "colour", "ceo")
+    )
+    return classification.intent == "unsupported" and off_domain
 
 
 def _heuristic_plan(query: str, intent: str) -> list[PlanStep]:
@@ -292,19 +310,29 @@ class AgentGraph:
                 "plan": [],
                 "errors": ["request was empty or whitespace"],
             }
+        heuristic = _heuristic_intent(query)
+        errors = list(state.get("errors", []))
+        if _heuristic_is_confident(query, heuristic):
+            known = [t for t in heuristic.tools if t in set(self._registry.names)]
+            return {
+                "request_id": request_id,
+                "intent": heuristic.intent,
+                "intent_reasoning": "heuristic fast-path",
+                "selected_tools": known,
+                "errors": errors,
+            }
         messages = [
             {"role": "system", "content": INTENT_ROUTING_PROMPT.format(
                 schema=ANSWER_SCHEMA_HINT, query=query)},
             {"role": "user", "content": f"Classify this request: {query}"},
         ]
-        errors = list(state.get("errors", []))
         try:
             raw = self._llm.chat(messages, json_mode=True, max_tokens=1200)
             parsed = _extract_json(raw)
             classification = IntentClassification.model_validate(parsed)
         except (LLMError, ValidationError, TypeError) as exc:
             errors.append(f"intent classification fallback: {exc}")
-            classification = _heuristic_intent(query)
+            classification = heuristic
         known = [t for t in classification.tools if t in set(self._registry.names)]
         return {
             "request_id": request_id,
@@ -366,7 +394,7 @@ class AgentGraph:
             "arguments_summary": json.dumps(arguments, default=str)[:200],
         }
         try:
-            result = self._registry.execute(name, arguments)
+            result = self._registry.execute(name, arguments, **_identity(state))
         except ToolError as exc:
             errors.append(f"{name} failed: {exc}")
             trace_entry["result_summary"] = f"ERROR: {exc}"[:300]
@@ -383,6 +411,7 @@ class AgentGraph:
         if isinstance(result.get("evidence"), dict):
             evidence.append({"tool": name, **result["evidence"]})
         trace_entry["result_summary"] = str(result.get("summary", ""))[:300]
+        trace_entry["cache_hit"] = bool(result.get("cache_hit"))
         tool_trace.append(trace_entry)
         return {
             "plan": remaining,
@@ -418,7 +447,7 @@ class AgentGraph:
             return {"errors": errors}
         try:
             result = self._registry.execute(
-                "create_restock_proposal", draft.proposal.model_dump()
+                "create_restock_proposal", draft.proposal.model_dump(), **_identity(state)
             )
         except ToolError as exc:
             errors.append(f"create_restock_proposal failed: {exc}")
@@ -452,8 +481,10 @@ class AgentGraph:
                 schema=ANSWER_SCHEMA_HINT)},
             {"role": "user", "content": f"Answer this request from the evidence: {query}"},
         ]
+        evidence_chars = len(_evidence_for_prompt(evidence))
+        max_tokens = 800 if evidence_chars < 1_500 else 2600
         try:
-            raw = self._llm.chat(messages, json_mode=True, max_tokens=2600)
+            raw = self._llm.chat(messages, json_mode=True, max_tokens=max_tokens)
             draft = AnswerDraft.model_validate(_extract_json(raw))
             return {"answer": draft.answer}
         except (LLMError, ValidationError, TypeError) as exc:

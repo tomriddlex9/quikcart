@@ -36,12 +36,8 @@ import {
   StackedTabsTrigger,
 } from "@/components/ui/stacked-tabs";
 import { apiGetJson } from "@/lib/api";
-import {
-  DEMO_ANOMALIES,
-  DEMO_DELIVERY_PREDICTION,
-  DEMO_DEMAND_FORECASTS,
-  DEMO_STORES,
-} from "@/lib/demo";
+import { useDataMode } from "@/lib/data-mode";
+import { DEMO_DELIVERY, demoDemandForecasts } from "@/lib/demo-payload";
 import { formatDateTime, formatNumber } from "@/lib/format";
 import { MODEL_CARDS, type ModelCard } from "@/lib/model-cards";
 import { useApiData } from "@/lib/use-api";
@@ -49,14 +45,13 @@ import type { AnomalyRow, DemandForecastRow, DeliveryPrediction, StoreRow } from
 
 // ---------------------------------------------------------------------------
 // Live predictions — on-demand lookups against the prediction endpoints.
-// A 404 is a not-found message. Transport, 5xx, and other failures stay
-// errors; the demo payload loads only from the explicit "Show example" button.
+// A 404 is a not-found message. Transport, 5xx, and other failures stay errors.
 // ---------------------------------------------------------------------------
 
 type LookupState<T> =
   | { status: "idle" }
   | { status: "loading" }
-  | { status: "done"; source: "live" | "example"; data: T }
+  | { status: "done"; data: T }
   | { status: "missing"; detail: string }
   | { status: "error"; detail: string };
 
@@ -93,17 +88,23 @@ function ProbabilityBar({ probability }: { probability: number }) {
 }
 
 function DeliveryLookup() {
+  const { source } = useDataMode();
   const [input, setInput] = useState("");
   const [state, setState] = useState<LookupState<DeliveryPrediction>>({ status: "idle" });
+  const showing = source === "demo" && state.status === "done" ? { ...state, data: DEMO_DELIVERY } : state;
 
   async function lookup(orderId: string) {
     if (!orderId.trim()) return;
+    if (source === "demo") {
+      setState({ status: "done", data: DEMO_DELIVERY });
+      return;
+    }
     setState({ status: "loading" });
     try {
       const data = await apiGetJson<DeliveryPrediction>(
         `/api/v1/predictions/delivery/${encodeURIComponent(orderId.trim())}`,
       );
-      setState({ status: "done", source: "live", data });
+      setState({ status: "done", data });
     } catch (err) {
       if (isHttpError(err, 404)) {
         setState({
@@ -116,11 +117,7 @@ function DeliveryLookup() {
     }
   }
 
-  function showExample() {
-    setState({ status: "done", source: "example", data: DEMO_DELIVERY_PREDICTION });
-  }
-
-  const p = state.status === "done" ? (state.data.late_probability ?? 0) : 0;
+  const p = showing.status === "done" ? (showing.data.late_probability ?? 0) : 0;
 
   return (
     <Card size="sm">
@@ -157,42 +154,37 @@ function DeliveryLookup() {
               Reads the scored row from <code>gold_delivery_predictions</code>: probability,
               predicted class, and the MLflow run behind it.
             </p>
-          ) : state.status === "missing" ? (
-            <EmptyState title="No prediction on file" hint={state.detail} />
-          ) : state.status === "error" ? (
-            <div className="space-y-3">
-              <ErrorState message={state.detail} />
-              <Button type="button" variant="outline" size="sm" onClick={showExample}>
-                Show example
-              </Button>
-            </div>
-          ) : state.status === "done" ? (
+          ) : showing.status === "missing" ? (
+            <EmptyState title="No prediction on file" hint={showing.detail} />
+          ) : showing.status === "error" ? (
+            <ErrorState message={showing.detail} />
+          ) : showing.status === "done" ? (
             <div className="space-y-3">
               <div className="flex flex-wrap items-center gap-2">
-                <Pill tone={state.source === "live" ? "teal" : "amber"}>
-                  {state.source === "live" ? "live · gold row" : "example"}
+                <Pill tone={source === "demo" ? "neutral" : "teal"}>
+                  {source === "demo" ? "demo data" : "live · gold row"}
                 </Pill>
-                {state.data.predicted_class !== undefined ? (
-                  <Pill tone={Number(state.data.predicted_class) >= 1 ? "red" : "green"}>
-                    predicted {Number(state.data.predicted_class) >= 1 ? "LATE" : "on time"}
+                {showing.data.predicted_class !== undefined ? (
+                  <Pill tone={Number(showing.data.predicted_class) >= 1 ? "red" : "green"}>
+                    predicted {Number(showing.data.predicted_class) >= 1 ? "LATE" : "on time"}
                   </Pill>
                 ) : null}
-                {state.data.actual_class !== undefined && state.data.actual_class !== null ? (
+                {showing.data.actual_class !== undefined && showing.data.actual_class !== null ? (
                   <span className="text-xs text-muted-foreground">
-                    actual: {Number(state.data.actual_class) >= 1 ? "late" : "on time"}
+                    actual: {Number(showing.data.actual_class) >= 1 ? "late" : "on time"}
                   </span>
                 ) : null}
               </div>
-              {typeof state.data.late_probability === "number" ? (
+              {typeof showing.data.late_probability === "number" ? (
                 <ProbabilityBar probability={p} />
               ) : null}
               <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 border-t border-border pt-3 text-xs">
                 <dt className="text-muted-foreground">model</dt>
-                <dd className="truncate">{state.data.model_name ?? "—"}</dd>
+                <dd className="truncate">{showing.data.model_name ?? "—"}</dd>
                 <dt className="text-muted-foreground">MLflow run</dt>
-                <dd className="truncate">{state.data.model_version ?? "—"}</dd>
+                <dd className="truncate">{showing.data.model_version ?? "—"}</dd>
                 <dt className="text-muted-foreground">predicted at</dt>
-                <dd>{state.data.predicted_at ? formatDateTime(state.data.predicted_at) : "—"}</dd>
+                <dd>{showing.data.predicted_at ? formatDateTime(showing.data.predicted_at) : "—"}</dd>
               </dl>
             </div>
           ) : null}
@@ -203,12 +195,17 @@ function DeliveryLookup() {
 }
 
 function DemandLookup() {
-  const stores = useApiData<StoreRow[]>("/api/v1/stores", DEMO_STORES);
+  const { source } = useDataMode();
+  const stores = useApiData<StoreRow[]>("/api/v1/stores");
   const [storeId, setStoreId] = useState("");
   const [category, setCategory] = useState("");
   const [state, setState] = useState<LookupState<DemandForecastRow[]>>({ status: "idle" });
 
   async function lookup() {
+    if (source === "demo") {
+      setState({ status: "done", data: demoDemandForecasts(storeId, category.trim()) });
+      return;
+    }
     setState({ status: "loading" });
     const params = new URLSearchParams();
     if (storeId) params.set("store_id", storeId);
@@ -218,7 +215,7 @@ function DemandLookup() {
       const data = await apiGetJson<DemandForecastRow[]>(
         `/api/v1/predictions/demand${qs ? `?${qs}` : ""}`,
       );
-      setState({ status: "done", source: "live", data });
+      setState({ status: "done", data });
     } catch (err) {
       if (isHttpError(err, 404)) {
         setState({
@@ -230,10 +227,6 @@ function DemandLookup() {
         setState({ status: "error", detail: errorDetail(err) });
       }
     }
-  }
-
-  function showExample() {
-    setState({ status: "done", source: "example", data: DEMO_DEMAND_FORECASTS });
   }
 
   const rows = state.status === "done" ? state.data : [];
@@ -288,12 +281,7 @@ function DemandLookup() {
           ) : state.status === "missing" ? (
             <EmptyState title="No forecast on file" hint={state.detail} />
           ) : state.status === "error" ? (
-            <div className="space-y-3">
-              <ErrorState message={state.detail} />
-              <Button type="button" variant="outline" size="sm" onClick={showExample}>
-                Show example
-              </Button>
-            </div>
+            <ErrorState message={state.detail} />
           ) : state.status === "done" && rows.length === 0 ? (
             <EmptyState
               title="No forecast rows for that filter"
@@ -302,8 +290,8 @@ function DemandLookup() {
           ) : state.status === "done" ? (
             <div>
               <div className="mb-2 flex flex-wrap items-center gap-2">
-                <Pill tone={state.source === "live" ? "teal" : "amber"}>
-                  {state.source === "live" ? "live · gold rows" : "example"}
+                <Pill tone={source === "demo" ? "neutral" : "teal"}>
+                  {source === "demo" ? "demo data" : "live · gold rows"}
                 </Pill>
                 {version ? (
                   <span className="truncate text-xs text-muted-foreground">
@@ -385,8 +373,8 @@ function severityTone(severity: string): "red" | "amber" | "neutral" {
 }
 
 function AnomaliesPanel() {
-  const anomalies = useApiData<AnomalyRow[]>("/api/v1/anomalies", DEMO_ANOMALIES, 30_000);
-  const demo = anomalies.mode !== "live";
+  const anomalies = useApiData<AnomalyRow[]>("/api/v1/anomalies", 30_000);
+  const showBanner = anomalies.mode === "stale" || anomalies.mode === "demo" || Boolean(anomalies.error);
 
   const rows = [...(anomalies.data ?? [])].sort((a, b) => {
     const dr =
@@ -398,7 +386,7 @@ function AnomaliesPanel() {
 
   return (
     <div>
-      {demo ? <ApiBanner mode={anomalies.mode} error={anomalies.error} /> : null}
+      {showBanner ? <ApiBanner mode={anomalies.mode} error={anomalies.error} /> : null}
       <Card size="sm">
         <CardHeader>
           <CardTitle className="text-sm">Anomalies</CardTitle>
@@ -406,13 +394,27 @@ function AnomaliesPanel() {
             severity, then recency · {rows.length} hits
           </CardDescription>
           <CardAction>
-            <Pill tone={demo ? "amber" : "teal"}>
-              {demo ? "demo data" : "live · gold_anomalies"}
+            <Pill
+              tone={
+                anomalies.mode === "live" ? "teal" : anomalies.mode === "demo" ? "neutral" : "amber"
+              }
+            >
+              {anomalies.mode === "live"
+                ? "live · gold_anomalies"
+                : anomalies.mode === "demo"
+                  ? "demo data"
+                  : anomalies.mode === "stale"
+                    ? "last live"
+                    : anomalies.error
+                      ? "unreachable"
+                      : "loading"}
             </Pill>
           </CardAction>
         </CardHeader>
         <CardContent>
-          {anomalies.data === null ? (
+          {anomalies.data === null && anomalies.error ? (
+            <ErrorState message={anomalies.error} />
+          ) : anomalies.data === null ? (
             <Skeleton className="h-[220px] rounded-lg" />
           ) : rows.length === 0 ? (
             <EmptyState

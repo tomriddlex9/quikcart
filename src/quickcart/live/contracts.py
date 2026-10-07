@@ -26,6 +26,7 @@ PipelineStage = Literal[
     "gold_refresh",
     "ml_scoring",
     "anomaly_detect",
+    "serving_snapshot",
     "worker",
 ]
 
@@ -36,6 +37,7 @@ PIPELINE_STAGES: tuple[PipelineStage, ...] = (
     "gold_refresh",
     "ml_scoring",
     "anomaly_detect",
+    "serving_snapshot",
     "worker",
 )
 

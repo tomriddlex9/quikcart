@@ -114,10 +114,29 @@ export interface SystemStatus {
   data_root_tables: JsonObject;
 }
 
+export interface AgentEvidence {
+  tool?: string;
+  type?: string;
+  summary?: string;
+  [key: string]: unknown;
+}
+
+export interface AgentToolTrace {
+  step?: number;
+  tool?: string;
+  arguments_summary?: string;
+  result_summary?: string;
+  cache_hit?: boolean;
+  [key: string]: unknown;
+}
+
 export interface ChatResponse {
   answer: string;
-  evidence?: string[];
-  tool_trace?: string[];
+  evidence?: AgentEvidence[];
+  tool_trace?: AgentToolTrace[];
+  request_id?: string | null;
+  degraded?: boolean;
+  model?: string | null;
   [key: string]: unknown;
 }
 

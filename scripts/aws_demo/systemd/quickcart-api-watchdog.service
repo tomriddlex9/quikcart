@@ -1,0 +1,6 @@
+[Unit]
+Description=Restart QuickCart API when /health stops answering
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c 'curl -sf -m 5 http://127.0.0.1:8000/health >/dev/null || systemctl restart quickcart-api'

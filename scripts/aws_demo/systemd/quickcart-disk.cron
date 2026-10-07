@@ -1,0 +1,3 @@
+# Keep a full disk from taking Redpanda and the API down again.
+SHELL=/bin/bash
+*/10 * * * * root bash -c 'used=$(df / --output=pcent | tail -1 | tr -dc 0-9); if [ "$used" -ge 92 ]; then truncate -s 0 /var/log/syslog /var/log/syslog.1; journalctl --vacuum-size=40M; fi'

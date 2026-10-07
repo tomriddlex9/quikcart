@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Bot, FileText, SendHorizonal, Wrench } from "lucide-react";
+import { Bot, FileText, SendHorizonal, Sparkles, Wrench } from "lucide-react";
 import { ApiBanner } from "@/components/api-banner";
 import { PageHeader } from "@/components/page-header";
 import { Pill } from "@/components/pill";
 import { ProposalCard } from "@/components/proposal-card";
-import { EmptyState, Loading } from "@/components/states";
+import { EmptyState, ErrorState, Loading } from "@/components/states";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -17,19 +18,37 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { apiPostJson } from "@/lib/api";
-import { DEMO_PROPOSALS } from "@/lib/demo";
+import { streamAgentChat, type AgentStreamStage } from "@/lib/agent-stream";
+import type { AgentEvidence, AgentToolTrace, Proposal } from "@/lib/types";
 import { useApiData } from "@/lib/use-api";
-import type { ChatResponse, Proposal } from "@/lib/types";
+
+interface LiveTool {
+  name: string;
+  ok: boolean;
+  cache_hit: boolean;
+  summary: string;
+}
 
 interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   text: string;
-  evidence?: string[];
-  toolTrace?: string[];
+  evidence?: AgentEvidence[];
+  toolTrace?: AgentToolTrace[];
+  tools?: LiveTool[];
+  model?: string | null;
+  streaming?: boolean;
   error?: boolean;
 }
+
+const STORAGE_KEY = "qc_agent_chat:v1";
+const STAGE_LABEL: Record<AgentStreamStage, string> = {
+  classifying: "Classifying",
+  planning: "Planning",
+  tools: "Tools",
+  action: "Action",
+  answer: "Answering",
+};
 
 let idCounter = 0;
 function nextId(): string {
@@ -37,77 +56,174 @@ function nextId(): string {
   return `m-${Date.now()}-${idCounter}`;
 }
 
+function evidenceLine(item: AgentEvidence): string {
+  if (typeof item.summary === "string" && item.summary) return item.summary;
+  const tool = item.tool ? `${item.tool} · ` : "";
+  const type = item.type ? String(item.type) : "fact";
+  return `${tool}${type}`;
+}
+
+function loadStored(): { sessionId: string; messages: ChatMessage[] } | null {
+  try {
+    const raw = sessionStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { sessionId?: string; messages?: ChatMessage[] };
+    if (!parsed.sessionId || !Array.isArray(parsed.messages)) return null;
+    return { sessionId: parsed.sessionId, messages: parsed.messages };
+  } catch {
+    return null;
+  }
+}
+
 export function AgentConsole() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [stage, setStage] = useState<AgentStreamStage | null>(null);
   const [chatHealth, setChatHealth] = useState<"idle" | "live" | "down">("idle");
-  const [sessionId] = useState(() => `console-${Math.random().toString(36).slice(2, 10)}`);
-  const bottomRef = useRef<HTMLDivElement>(null);
-
-  // Pending proposals rail: live list when the API answers, labeled demo otherwise.
-  const proposals = useApiData<Proposal[]>(
-    "/api/v1/proposals?status=PENDING",
-    DEMO_PROPOSALS.filter((p) => p.status === "PENDING"),
+  const [sessionId, setSessionId] = useState(
+    () => `console-${Math.random().toString(36).slice(2, 10)}`,
   );
+  const [sessionReady, setSessionReady] = useState(false);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const proposals = useApiData<Proposal[]>("/api/v1/proposals?status=PENDING");
   const pendingProposals = (proposals.data ?? []).filter((p) => p.status === "PENDING");
+
+  useEffect(() => {
+    const stored = loadStored();
+    if (stored?.messages.length) {
+      setSessionId(stored.sessionId);
+      setMessages(stored.messages);
+    }
+    setSessionReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!sessionReady) return;
+    try {
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ sessionId, messages }));
+    } catch {
+      /* quota / private mode */
+    }
+  }, [sessionId, messages, sessionReady]);
+
+  useEffect(() => {
+    return () => abortRef.current?.abort();
+  }, []);
 
   const send = useCallback(async () => {
     const text = input.trim();
     if (!text || sending) return;
     setInput("");
     setSending(true);
-    setMessages((prev) => [...prev, { id: nextId(), role: "user", text }]);
-    const result = await apiPostJson<ChatResponse>("/api/v1/agent/chat", {
-      message: text,
-      session_id: sessionId,
-    });
+    setStage("classifying");
+    const userId = nextId();
+    const assistantId = nextId();
+    setMessages((prev) => [
+      ...prev,
+      { id: userId, role: "user", text },
+      { id: assistantId, role: "assistant", text: "", streaming: true, tools: [] },
+    ]);
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    await streamAgentChat(
+      text,
+      sessionId,
+      {
+        onStatus: (nextStage, model) => {
+          setStage(nextStage);
+          if (model) {
+            setMessages((prev) =>
+              prev.map((m) => (m.id === assistantId ? { ...m, model } : m)),
+            );
+          }
+        },
+        onTool: (tool) => {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantId ? { ...m, tools: [...(m.tools ?? []), tool] } : m,
+            ),
+          );
+          if (tool.name === "create_restock_proposal") {
+            proposals.reload();
+          }
+        },
+        onToken: (chunk) => {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantId ? { ...m, text: `${m.text}${chunk}` } : m,
+            ),
+          );
+        },
+        onDone: (payload) => {
+          setChatHealth("live");
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantId
+                ? {
+                    ...m,
+                    text: payload.answer || m.text,
+                    evidence: payload.evidence,
+                    toolTrace: payload.tool_trace,
+                    model: payload.model ?? m.model,
+                    streaming: false,
+                    error: Boolean(payload.degraded) && !payload.answer,
+                  }
+                : m,
+            ),
+          );
+          proposals.reload();
+        },
+        onError: (detail) => {
+          setChatHealth("down");
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantId
+                ? {
+                    ...m,
+                    error: true,
+                    streaming: false,
+                    text:
+                      m.text ||
+                      (detail.includes("503") || detail.includes("404")
+                        ? "The assistant is not available — the API is down or the stream route is missing."
+                        : `The assistant call failed: ${detail}`),
+                  }
+                : m,
+            ),
+          );
+        },
+      },
+      controller.signal,
+    );
     setSending(false);
-    if (!result.ok) {
-      setChatHealth("down");
-      const unavailable = result.status === 503 || result.status === 404 || result.status === 0;
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: nextId(),
-          role: "assistant",
-          error: true,
-          text: unavailable
-            ? "The assistant is not available — the LangGraph agent is not wired into the API, or the API is down. No answer was generated and nothing here is fabricated."
-            : `The assistant call failed: ${result.detail}`,
-        },
-      ]);
-    } else {
-      setChatHealth("live");
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: nextId(),
-          role: "assistant",
-          text: result.data.answer ?? "(empty answer from agent)",
-          evidence: Array.isArray(result.data.evidence) ? result.data.evidence : [],
-          toolTrace: Array.isArray(result.data.tool_trace) ? result.data.tool_trace : [],
-        },
-      ]);
-    }
-    // The agent may have created a proposal for this request — refresh the rail.
-    proposals.reload();
+    setStage(null);
   }, [input, sending, sessionId, proposals]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages, sending]);
+  }, [messages, sending, stage]);
 
-  const demo = proposals.mode !== "live";
+  const showProposalsBanner = proposals.mode === "stale" || Boolean(proposals.error);
   const proposalsLabel =
-    proposals.mode === "live" ? "live" : proposals.mode === "stale" ? "stale" : "demo";
+    proposals.mode === "live"
+      ? "live"
+      : proposals.mode === "stale"
+        ? "last live"
+        : proposals.error
+          ? "unreachable"
+          : "loading";
   const chatLabel = chatHealth === "down" ? "unavailable" : chatHealth === "live" ? "live" : "idle";
 
   return (
     <>
       <PageHeader
         title="Agent"
-        description="A bounded assistant over Gold marts, ML predictions and SOP documents. It proposes changes; it never writes."
+        description="A bounded assistant over Gold marts, ML predictions and SOP documents. It proposes changes; it never writes. Replies stream live from Gemini when configured."
       />
 
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
@@ -122,7 +238,7 @@ export function AgentConsole() {
               >
                 chat · {chatLabel}
               </Pill>
-              <span className="font-mono">POST /agent/chat</span>
+              <span className="font-mono">POST /agent/chat/stream</span>
             </div>
 
             <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
@@ -148,7 +264,32 @@ export function AgentConsole() {
                             : "border border-border"
                         }`}
                       >
-                        <div className="whitespace-pre-wrap">{m.text}</div>
+                        {m.model ? (
+                          <div className="mb-1.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                            <Sparkles className="size-3" strokeWidth={1.75} />
+                            {m.model}
+                          </div>
+                        ) : null}
+                        <div className="whitespace-pre-wrap">
+                          {m.text || (m.streaming ? "" : "(empty answer from agent)")}
+                          {m.streaming && !m.text ? (
+                            <span className="text-muted-foreground">working…</span>
+                          ) : null}
+                        </div>
+
+                        {m.tools && m.tools.length > 0 ? (
+                          <ul className="mt-2 space-y-1">
+                            {m.tools.map((t, i) => (
+                              <li key={`${t.name}-${i}`} className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                                <Badge variant={t.ok ? "secondary" : "destructive"}>{t.name}</Badge>
+                                {t.cache_hit ? (
+                                  <Badge variant="outline">cache</Badge>
+                                ) : null}
+                                <span className="text-muted-foreground">{t.summary}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
 
                         {m.evidence && m.evidence.length > 0 ? (
                           <div className="mt-3 border-t border-border pt-2.5">
@@ -157,7 +298,7 @@ export function AgentConsole() {
                             </div>
                             <ul className="space-y-1 text-xs text-muted-foreground">
                               {m.evidence.map((e, i) => (
-                                <li key={i}>· {e}</li>
+                                <li key={i}>· {evidenceLine(e)}</li>
                               ))}
                             </ul>
                           </div>
@@ -172,7 +313,8 @@ export function AgentConsole() {
                             <ol className="mt-1.5 space-y-1 text-xs text-muted-foreground">
                               {m.toolTrace.map((t, i) => (
                                 <li key={i}>
-                                  {i + 1}. {t}
+                                  {i + 1}. {t.tool ?? "tool"}
+                                  {t.cache_hit ? " · cache" : ""} — {t.result_summary ?? ""}
                                 </li>
                               ))}
                             </ol>
@@ -183,10 +325,10 @@ export function AgentConsole() {
                   ),
                 )
               )}
-              {sending ? (
+              {sending && stage ? (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <span className="live-dot inline-block size-1.5 rounded-full bg-chart-2" />
-                  thinking…
+                  {STAGE_LABEL[stage]}
                 </div>
               ) : null}
               <div ref={bottomRef} />
@@ -224,14 +366,20 @@ export function AgentConsole() {
               Approvals execute against PostgreSQL in one audited transaction.
             </CardDescription>
             <CardAction>
-              <Pill tone={proposals.mode === "live" ? "teal" : "amber"}>
+              <Pill
+                tone={
+                  proposals.mode === "live" ? "teal" : proposals.mode === "demo" ? "neutral" : "amber"
+                }
+              >
                 proposals · {proposalsLabel}
               </Pill>
             </CardAction>
           </CardHeader>
           <CardContent>
-            {demo ? <ApiBanner mode={proposals.mode} error={proposals.error} /> : null}
-            {proposals.data === null ? (
+            {showProposalsBanner ? <ApiBanner mode={proposals.mode} error={proposals.error} /> : null}
+            {proposals.data === null && proposals.error ? (
+              <ErrorState message={proposals.error} />
+            ) : proposals.data === null ? (
               <Loading label="Loading proposals…" />
             ) : pendingProposals.length === 0 ? (
               <EmptyState
@@ -244,7 +392,7 @@ export function AgentConsole() {
                   <ProposalCard
                     key={p.proposal_id}
                     proposal={p}
-                    demo={demo}
+                    demo={false}
                     onChanged={() => proposals.reload()}
                   />
                 ))}

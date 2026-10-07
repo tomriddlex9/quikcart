@@ -6,7 +6,7 @@ import { CloudSun, MapPin, TrafficCone } from "lucide-react";
 import { ApiBanner } from "@/components/api-banner";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { DEMO_GEO_STORES } from "@/lib/geo-demo";
+import { EmptyState, ErrorState } from "@/components/states";
 import type { GeoStore } from "@/lib/types";
 import { useApiData } from "@/lib/use-api";
 import { cn } from "@/lib/utils";
@@ -40,8 +40,8 @@ function trafficChip(store: GeoStore): string | null {
 }
 
 export function MapConsole() {
-  const { data, mode, error } = useApiData<GeoStore[]>("/api/v1/geo/stores", DEMO_GEO_STORES, 60_000);
-  const stores = data ?? DEMO_GEO_STORES;
+  const { data, mode, error } = useApiData<GeoStore[]>("/api/v1/geo/stores", 60_000);
+  const stores = data ?? [];
   const [selectedStoreId, setSelectedStoreId] = useState<number | null>(null);
   const [focusNonce, setFocusNonce] = useState(0);
 
@@ -76,7 +76,20 @@ export function MapConsole() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <ul className="max-h-[min(62vh,520px)] space-y-2 overflow-y-auto pr-1">
+            <ul className="max-h-[min(62vh,520px)] space-y-2 overflow-y-auto pr-1 pb-24">
+              {data === null && error ? (
+                <li>
+                  <ErrorState message={error} />
+                </li>
+              ) : data === null ? (
+                <li>
+                  <EmptyState title="Loading stores…" />
+                </li>
+              ) : stores.length === 0 ? (
+                <li>
+                  <EmptyState title="No stores returned" hint="The geo endpoint answered with an empty list." />
+                </li>
+              ) : null}
               {stores.map((store) => {
                 const weather = weatherChip(store);
                 const traffic = trafficChip(store);

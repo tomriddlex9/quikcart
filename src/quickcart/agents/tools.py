@@ -19,19 +19,25 @@ Design rules:
   extra dependencies (kit/03 §13.3).
 """
 
+import contextvars
+import copy
+import json
 import re
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 from uuid import uuid4
 
 import structlog
 from pydantic import BaseModel, Field, ValidationError
 
+from quickcart.identity.models import Principal
+from quickcart.identity.rbac import has_permission, scope_filter
 from quickcart.lakehouse.common.paths import table_path
 
 logger = structlog.get_logger(__name__)
@@ -40,6 +46,25 @@ logger = structlog.get_logger(__name__)
 SQL_ROW_CAP = 500
 TOOL_ROW_CAP = 50
 RESULT_CHAR_CAP = 20_000
+TOOL_RESULT_TTL_SECONDS = 30.0
+_CACHEABLE_TOOLS = frozenset(
+    {
+        "get_store_metrics",
+        "get_kpi_summary",
+        "get_inventory_risk",
+        "get_demand_forecast",
+        "list_active_anomalies",
+        "get_delivery_prediction",
+        # Assistant v2 business tools (cache key includes the caller's data scope).
+        "get_metric",
+        "compare_stores",
+        "explain_metric_change",
+        "get_briefing",
+        "get_alerts",
+    }
+)
+_tool_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+_tool_cache_lock = threading.Lock()
 
 # Analytics + prediction tables the read-only SQL tool may touch (kit/02 AR-002).
 SQL_TABLE_PATTERN = re.compile(r"^(silver|gold)_[a-z][a-z0-9_]*$")
@@ -47,6 +72,55 @@ SQL_TABLE_PATTERN = re.compile(r"^(silver|gold)_[a-z][a-z0-9_]*$")
 
 class ToolError(Exception):
     """A tool refused to run or its backend failed; the graph degrades on these."""
+
+
+class UnknownToolError(ToolError):
+    """The requested tool name is not registered."""
+
+
+class ToolArgumentError(ToolError):
+    """Arguments failed Pydantic validation."""
+
+
+class ToolPermissionError(ToolError):
+    """The principal lacks the permission/scope, or the tool is off this surface."""
+
+
+@dataclass(frozen=True)
+class ToolContext:
+    """Who is calling and over which surface — visible to tool bodies (scope filtering)."""
+
+    principal: Principal | None = None
+    channel: str = "text"
+
+
+_ANONYMOUS_CONTEXT = ToolContext()
+_tool_context: contextvars.ContextVar[ToolContext | None] = contextvars.ContextVar(
+    "agent_tool_context", default=None
+)
+
+
+def current_tool_context() -> ToolContext:
+    """The context of the tool call in progress (anonymous/text outside a call)."""
+    return _tool_context.get() or _ANONYMOUS_CONTEXT
+
+
+def principal_scope_key(principal: Principal | None) -> str:
+    """Stable string of a principal's data scope — part of every tool cache key."""
+    if principal is None:
+        return ""
+    return "|".join(sorted(f"{s.scope_type}:{s.scope_value}" for s in principal.scopes)) or "none"
+
+
+def reset_tool_cache() -> None:
+    """Drop the process-local Gold tool TTL cache (tests + agent reset_runtime)."""
+    with _tool_cache_lock:
+        _tool_cache.clear()
+
+
+def _tool_cache_key(name: str, arguments: dict[str, Any], scope: str = "") -> str:
+    payload = json.dumps(arguments or {}, sort_keys=True, default=str)
+    return f"{name}:{scope}:{payload}"
 
 
 # --------------------------------------------------------------------------- #
@@ -122,6 +196,7 @@ class ToolDeps:
     readers: SupportsGoldReads | None = None
     retriever: SupportsGroundedSearch | None = None
     proposal_service: SupportsProposalCreate | None = None
+    business: Any | None = None  # quickcart.agents.business_tools.BusinessDeps
     spark: Any | None = None
     data_root: Path | None = None
     sql_runner: Callable[[str], list[dict[str, Any]]] | None = None
@@ -570,12 +645,20 @@ def _run_readonly_sql(deps: ToolDeps, args: RunReadonlySqlArgs) -> dict[str, Any
 # --------------------------------------------------------------------------- #
 
 
+ALL_SURFACES = frozenset({"text", "voice"})
+ToolRisk = Literal["read", "propose"]
+
+
 @dataclass(frozen=True)
 class ToolSpec:
     name: str
     description: str
     args_model: type[BaseModel]
     func: Callable[[BaseModel], dict[str, Any]]
+    permission: str | None = None  # RBAC key the principal must hold (None = open)
+    surfaces: frozenset[str] = ALL_SURFACES  # channels allowed to call it
+    risk: ToolRisk = "read"  # "propose" creates PENDING proposals only; never executes
+    scoped: bool = True  # honour the principal's store/city/category data scope
 
 
 def build_registry(deps: ToolDeps) -> "ToolRegistry":
@@ -586,36 +669,61 @@ def build_registry(deps: ToolDeps) -> "ToolRegistry":
 
     specs = [
         ToolSpec("get_store_metrics", "Gold metrics for one store", GetStoreMetricsArgs,
-                 wrap(GetStoreMetricsArgs, _get_store_metrics)),
+                 wrap(GetStoreMetricsArgs, _get_store_metrics), permission="drill:store"),
         ToolSpec("get_kpi_summary", "Headline KPIs across all stores", GetKpiSummaryArgs,
-                 wrap(GetKpiSummaryArgs, _get_kpi_summary)),
+                 wrap(GetKpiSummaryArgs, _get_kpi_summary), permission="kpi:read"),
         ToolSpec("get_inventory_risk", "SKUs below reorder point / low stock cover",
-                 GetInventoryRiskArgs, wrap(GetInventoryRiskArgs, _get_inventory_risk)),
+                 GetInventoryRiskArgs, wrap(GetInventoryRiskArgs, _get_inventory_risk),
+                 permission="kpi:read"),
         ToolSpec("get_delivery_prediction", "Persisted late-delivery prediction for an order",
                  GetDeliveryPredictionArgs, wrap(GetDeliveryPredictionArgs,
-                                                 _get_delivery_prediction)),
+                                                 _get_delivery_prediction),
+                 permission="drill:order"),
         ToolSpec("get_demand_forecast", "Persisted demand forecast rows for a store",
-                 GetDemandForecastArgs, wrap(GetDemandForecastArgs, _get_demand_forecast)),
+                 GetDemandForecastArgs, wrap(GetDemandForecastArgs, _get_demand_forecast),
+                 permission="drill:store"),
         ToolSpec("list_active_anomalies", "Persisted anomaly rows", ListActiveAnomaliesArgs,
-                 wrap(ListActiveAnomaliesArgs, _list_active_anomalies)),
+                 wrap(ListActiveAnomaliesArgs, _list_active_anomalies), permission="kpi:read"),
         ToolSpec("search_company_docs", "Grounded retrieval over internal documents",
-                 SearchCompanyDocsArgs, wrap(SearchCompanyDocsArgs, _search_company_docs)),
+                 SearchCompanyDocsArgs, wrap(SearchCompanyDocsArgs, _search_company_docs),
+                 permission="copilot:chat", scoped=False),
         ToolSpec("create_restock_proposal",
                  "Create a PENDING restock proposal (never executes; needs human approval)",
                  CreateRestockProposalArgs, wrap(CreateRestockProposalArgs,
-                                                 _create_restock_proposal)),
+                                                 _create_restock_proposal),
+                 permission="proposal:create", risk="propose"),
         ToolSpec("run_readonly_sql",
                  "One read-only SELECT over silver_*/gold_* Delta tables (LIMIT enforced)",
-                 RunReadonlySqlArgs, wrap(RunReadonlySqlArgs, _run_readonly_sql)),
+                 RunReadonlySqlArgs, wrap(RunReadonlySqlArgs, _run_readonly_sql),
+                 permission="copilot:sql_tool", surfaces=frozenset({"text"}), scoped=False),
     ]
-    return ToolRegistry({spec.name: spec for spec in specs})
+    if deps.business is not None:
+        from quickcart.agents.business_tools import business_specs
+
+        specs.extend(business_specs(deps.business))
+    registry = ToolRegistry({spec.name: spec for spec in specs})
+    if deps.business is not None:
+        registry.store_city_lookup = deps.business.store_city
+    return registry
+
+
+AuditSink = Callable[[dict[str, Any]], None]
+StoreCityLookup = Callable[[int], str | None]
 
 
 class ToolRegistry:
-    """Name → spec map with Pydantic argument validation on every call."""
+    """Name → spec map with argument validation, RBAC, scope and audit on every call."""
 
-    def __init__(self, specs: dict[str, ToolSpec]) -> None:
+    def __init__(
+        self,
+        specs: dict[str, ToolSpec],
+        *,
+        audit: AuditSink | None = None,
+        store_city_lookup: StoreCityLookup | None = None,
+    ) -> None:
         self._specs = dict(specs)
+        self._audit = audit
+        self.store_city_lookup = store_city_lookup
 
     @property
     def names(self) -> list[str]:
@@ -624,20 +732,152 @@ class ToolRegistry:
     def describe(self) -> dict[str, str]:
         return {name: spec.description for name, spec in sorted(self._specs.items())}
 
+    def get(self, name: str) -> ToolSpec | None:
+        return self._specs.get(name)
+
     def with_overrides(self, *specs: ToolSpec) -> "ToolRegistry":
         """Return a new registry with `specs` replacing same-named entries."""
         merged = dict(self._specs)
         merged.update({spec.name: spec for spec in specs})
-        return ToolRegistry(merged)
+        return ToolRegistry(
+            merged, audit=self._audit, store_city_lookup=self.store_city_lookup
+        )
 
-    def execute(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    def specs_for(
+        self, channel: str = "text", principal: Principal | None = None
+    ) -> list[ToolSpec]:
+        """Tools the caller may see: right surface and (if known) right permission."""
+        visible: list[ToolSpec] = []
+        for spec in sorted(self._specs.values(), key=lambda s: s.name):
+            if channel not in spec.surfaces:
+                continue
+            if (
+                principal is not None
+                and spec.permission is not None
+                and not has_permission(principal, spec.permission)
+            ):
+                continue
+            visible.append(spec)
+        return visible
+
+    def declarations(
+        self, channel: str = "text", principal: Principal | None = None
+    ) -> list[dict[str, Any]]:
+        """Gemini function declarations for `specs_for(channel, principal)`."""
+        from quickcart.agents.declarations import to_function_declarations
+
+        return to_function_declarations(self.specs_for(channel, principal))
+
+    # -- authorization -------------------------------------------------------------
+    def _authorize(
+        self, spec: ToolSpec, args: BaseModel, principal: Principal | None, channel: str
+    ) -> None:
+        if channel not in spec.surfaces:
+            raise ToolPermissionError(
+                f"tool {spec.name!r} is not available on the {channel} surface"
+            )
+        if principal is None:
+            return  # back-compat: internal/offline callers carry no identity
+        if spec.permission is not None and not has_permission(principal, spec.permission):
+            raise ToolPermissionError(f"missing permission: {spec.permission}")
+        if not spec.scoped:
+            return
+        store_id = getattr(args, "store_id", None)
+        city = getattr(args, "city", None)
+        category = getattr(args, "category", None)
+        if store_id is not None and not has_permission(principal, "drill:store"):
+            raise ToolPermissionError("missing permission: drill:store")
+        store_city = None
+        if store_id is not None and self.store_city_lookup is not None:
+            store_city = self.store_city_lookup(store_id)
+        try:
+            scope_filter(
+                principal, store_id=store_id, city=city, category=category, store_city=store_city
+            )
+        except PermissionError as exc:
+            raise ToolPermissionError(str(exc)) from exc
+
+    def _emit_audit(
+        self,
+        spec: ToolSpec | None,
+        name: str,
+        principal: Principal | None,
+        channel: str,
+        outcome: str,
+        arguments: dict[str, Any],
+        detail: str = "",
+    ) -> None:
+        event = {
+            "tool": name,
+            "risk": spec.risk if spec else None,
+            "channel": channel,
+            "user_id": principal.user_id if principal else None,
+            "email": principal.email if principal else None,
+            "outcome": outcome,
+            "arguments": json.dumps(arguments or {}, default=str)[:300],
+            "detail": detail[:300],
+        }
+        if principal is not None or (spec is not None and spec.risk != "read"):
+            logger.info("agent.tool_audit", **event)
+        if self._audit is not None:
+            self._audit(event)
+
+    # -- execution -----------------------------------------------------------------
+    def execute(
+        self,
+        name: str,
+        arguments: dict[str, Any],
+        principal: Principal | None = None,
+        channel: str = "text",
+    ) -> dict[str, Any]:
         spec = self._specs.get(name)
         if spec is None:
-            raise ToolError(f"unknown tool {name!r}; available: {', '.join(self.names)}")
+            self._emit_audit(None, name, principal, channel, "unknown_tool", arguments)
+            raise UnknownToolError(f"unknown tool {name!r}; available: {', '.join(self.names)}")
         try:
             args = spec.args_model.model_validate(arguments or {})
         except ValidationError as exc:
             detail = exc.errors(include_url=False)
-            raise ToolError(f"invalid arguments for {name}: {detail}") from exc
+            self._emit_audit(spec, name, principal, channel, "invalid_arguments", arguments)
+            raise ToolArgumentError(f"invalid arguments for {name}: {detail}") from exc
+        try:
+            self._authorize(spec, args, principal, channel)
+        except ToolPermissionError as exc:
+            self._emit_audit(spec, name, principal, channel, "denied", arguments, str(exc))
+            raise
         logger.debug("agent.tool_call", tool=name, arguments=arguments)
-        return spec.func(args)
+        scope = principal_scope_key(principal)
+        cache_key = _tool_cache_key(name, args.model_dump(), scope)
+        if name in _CACHEABLE_TOOLS:
+            now = time.monotonic()
+            with _tool_cache_lock:
+                cached = _tool_cache.get(cache_key)
+                if cached is not None:
+                    expires_at, payload = cached
+                    if now < expires_at:
+                        hit = copy.deepcopy(payload)
+                        hit["cache_hit"] = True
+                        logger.debug("agent.tool_cache_hit", tool=name)
+                        self._emit_audit(spec, name, principal, channel, "cache_hit", arguments)
+                        return hit
+        token = _tool_context.set(ToolContext(principal=principal, channel=channel))
+        try:
+            result = spec.func(args)
+        except ToolError as exc:
+            self._emit_audit(spec, name, principal, channel, "error", arguments, str(exc))
+            raise
+        finally:
+            _tool_context.reset(token)
+        self._emit_audit(spec, name, principal, channel, "ok", arguments)
+        if name in _CACHEABLE_TOOLS:
+            stored = copy.deepcopy(result)
+            stored["cache_hit"] = False
+            with _tool_cache_lock:
+                _tool_cache[cache_key] = (
+                    time.monotonic() + TOOL_RESULT_TTL_SECONDS,
+                    stored,
+                )
+            result = copy.deepcopy(stored)
+        else:
+            result["cache_hit"] = False
+        return result

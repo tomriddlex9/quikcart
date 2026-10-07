@@ -36,5 +36,12 @@ jobs:
       - name: Pytest (unit always; integration skips without services)
         run: uv run pytest -q
 
+      - name: Frontend typecheck + unit tests
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run typecheck
+          npm test
+
       - name: Validate docker-compose config
         run: docker compose config --quiet

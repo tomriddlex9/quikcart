@@ -119,8 +119,16 @@ def test_mixed_document_question_falls_back_to_gold_and_rag() -> None:
 
 
 def test_llm_failure_falls_back_to_heuristic_routing() -> None:
-    """A dead LLM at classification degrades to keyword routing, visibly."""
+    """Ambiguous queries still call the classifier; a dead LLM degrades visibly."""
     llm = FakeLLM(fail_tags=("[INTENT]",))
+    state = run_graph("Please advise on the situation", registry=build_fake_registry(), llm=llm)
+    assert any("intent classification fallback" in e for e in state["errors"])
+    assert [tag for tag, *_ in llm.calls].count("[INTENT]") == 1
+
+
+def test_confident_heuristic_skips_intent_llm() -> None:
+    llm = FakeLLM()
     state = run_graph("How is Store 8 performing?", registry=build_fake_registry(), llm=llm)
     assert "get_store_metrics" in called_tools(state)
-    assert any("intent classification fallback" in e for e in state["errors"])
+    assert all(tag != "[INTENT]" for tag, *_ in llm.calls)
+    assert state["intent_reasoning"] == "heuristic fast-path"

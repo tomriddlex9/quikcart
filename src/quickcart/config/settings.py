@@ -7,6 +7,7 @@ Every environment-specific value lives here and is fed by environment variables
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -53,10 +54,33 @@ class Settings(BaseSettings):
     gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
     gemini_model: str = "gemini-3.8-flash"
 
+    # Gemini Live voice (Phase B5). Off unless explicitly enabled *and* a key is set.
+    gemini_live_model: str = "gemini-3.8-live"
+    gemini_live_voice: str = "Aoede"
+    voice_enabled: bool = False
+    # How long a minted ephemeral token may open its (single) session.
+    voice_token_ttl_seconds: int = 120
+    # Hard cap on one voice session's length (the client closes at this mark).
+    voice_max_session_seconds: int = 600
+
     # xAI Grok (optional OpenAI-compatible chat calls)
     xai_api_key: str = ""
     xai_base_url: str = "https://api.x.ai/v1"
     xai_model: str = "grok-3-mini"
+
+    # Identity & RBAC (Phase B1)
+    auth_secret: str = "quickcart-dev-secret-change-me"
+    # False keeps the pre-auth console/tests working (anonymous = synthetic admin);
+    # True requires a valid qc_session cookie and enforces permissions.
+    auth_enforce: bool = False
+    auth_token_ttl_hours: int = 12
+    demo_user_password: str = "quickcart"
+    # Public showcase: demo sessions can never approve proposals.
+    public_demo: bool = Field(
+        default=False, validation_alias=AliasChoices("quickcart_public_demo", "public_demo")
+    )
+    # Passwordless persona picker (/api/v1/auth/demo-login). Disable in real deployments.
+    demo_login_enabled: bool = True
 
     # Ordered, versioned DDL migration scripts
     migrations_dir: Path = Path("infrastructure/postgres/migrations")

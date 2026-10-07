@@ -47,6 +47,33 @@ def test_missing_backend_is_a_visible_tool_error() -> None:
         registry.execute("search_company_docs", {"query": "refund"})
 
 
+def test_readonly_gold_tools_use_ttl_cache() -> None:
+    class CountingReaders:
+        calls = 0
+
+        def kpi_summary(self) -> dict:
+            CountingReaders.calls += 1
+            return {"orders": 9, "gmv": 100.0}
+
+        def store_comparison(self):
+            return []
+
+        def store_hourly(self, store_id: int):
+            return []
+
+        def inventory_risk(self, limit: int = 50):
+            return []
+
+    CountingReaders.calls = 0
+    registry = _registry(readers=CountingReaders())
+    first = registry.execute("get_kpi_summary", {})
+    second = registry.execute("get_kpi_summary", {})
+    assert first["ok"] is True
+    assert first.get("cache_hit") is False
+    assert second.get("cache_hit") is True
+    assert CountingReaders.calls == 1
+
+
 # --- proposal tool ------------------------------------------------------------ #
 
 

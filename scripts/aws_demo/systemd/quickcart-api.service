@@ -14,6 +14,8 @@ Environment=APP_HOST=0.0.0.0
 ExecStart=/home/ubuntu/.local/bin/uv run python -m quickcart.api
 Restart=always
 RestartSec=5
+TimeoutStopSec=20
+KillMode=mixed
 
 [Install]
 WantedBy=multi-user.target

@@ -106,16 +106,27 @@ def load_history(cur: psycopg.Cursor, history) -> None:
     sync_identity_sequences(cur, TRANSACTIONAL_TABLES)
 
 
+# Columns used for the reference fingerprint must match what the generator emits
+# and what ``load_reference`` COPYs — not every physical column (V012+ added
+# promotion budget fields that seed does not populate).
+_REFERENCE_FINGERPRINT_COLUMNS: dict[str, tuple[str, ...]] = {
+    "stores": STORE_COLUMNS,
+    "customers": CUSTOMER_COLUMNS,
+    "customer_addresses": ADDRESS_COLUMNS,
+    "products": PRODUCT_COLUMNS,
+    "product_prices": PRICE_COLUMNS,
+    "riders": RIDER_COLUMNS,
+    "promotions": PROMOTION_COLUMNS,
+}
+
+
 def db_reference_fingerprint(conn: psycopg.Connection) -> str:
     """Fingerprint of the reference data currently in the database."""
-    tables = (
-        "stores", "customers", "customer_addresses",
-        "products", "product_prices", "riders", "promotions",
-    )
     row_sets: list[tuple[str, list[tuple]]] = []
-    for table in tables:
+    for table, columns in _REFERENCE_FINGERPRINT_COLUMNS.items():
+        cols = ", ".join(columns)
         with conn.cursor() as cur:
-            cur.execute(f"SELECT * FROM {table} ORDER BY 1")
+            cur.execute(f"SELECT {cols} FROM {table} ORDER BY 1")
             row_sets.append((table, cur.fetchall()))
     return canonical_row_fingerprint(row_sets)
 

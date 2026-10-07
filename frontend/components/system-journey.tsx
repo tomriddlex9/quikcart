@@ -4,7 +4,6 @@ import { useMemo, useState } from "react";
 import { Route } from "lucide-react";
 import { SystemMap } from "@/components/system-map";
 import { Button } from "@/components/ui/button";
-import { DEMO_SYSTEM_STATUS } from "@/lib/demo";
 import { useApiData } from "@/lib/use-api";
 import type { SystemStatus } from "@/lib/types";
 import type { JourneyState, LaneState } from "@/lib/system-map";
@@ -29,7 +28,7 @@ function deriveJourney(status: SystemStatus | null): JourneyState {
   return {
     batch: anyGoldPresent(tables) ? "flowing" : "idle",
     streaming: up("redpanda"),
-    cdc: debezium === null ? "demo" : debezium === "up" ? "flowing" : "idle",
+    cdc: debezium === "up" ? "flowing" : "idle",
     ai: up("qdrant"),
   };
 }
@@ -37,15 +36,14 @@ function deriveJourney(status: SystemStatus | null): JourneyState {
 const LANE_SUMMARY: Array<{ key: keyof JourneyState; probe: string }> = [
   { key: "batch", probe: "gold table presence on disk" },
   { key: "streaming", probe: "redpanda TCP probe" },
-  { key: "cdc", probe: "debezium in services list, else manual demo" },
+  { key: "cdc", probe: "debezium in the services probe" },
   { key: "ai", probe: "qdrant TCP probe" },
 ];
 
 export function SystemJourney() {
   const [enabled, setEnabled] = useState(false);
-  const status = useApiData<SystemStatus>("/api/v1/system/status", DEMO_SYSTEM_STATUS, 30_000);
+  const status = useApiData<SystemStatus>("/api/v1/system/status", 30_000);
   const journey = useMemo(() => deriveJourney(status.data), [status.data]);
-  const demo = status.mode !== "live";
 
   return (
     <div>
@@ -61,7 +59,11 @@ export function SystemJourney() {
         </Button>
         <span className="text-xs text-muted-foreground">
           overlays path state from <code>/api/v1/system/status</code>
-          {demo ? " (API offline — states are demo estimates)" : ""}
+          {status.error && status.data === null
+            ? " — status unavailable"
+            : status.mode === "stale"
+              ? " — last live status"
+              : ""}
         </span>
       </div>
 

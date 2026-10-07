@@ -73,22 +73,18 @@ function isDashboardPage(value: string): value is DashboardPage["name"] {
 }
 
 /**
- * Same-origin or CORS-readable responses only.
- * An opaque no-cors result is not evidence the server is up.
+ * Asks the Next route to probe Streamlit. The browser never treats an
+ * opaque cross-origin response as Online.
  */
-async function probeStreamlit(url: string, signal: AbortSignal): Promise<HealthState> {
-  if (!url) return "unknown";
+async function probeStreamlit(signal: AbortSignal): Promise<HealthState> {
   try {
-    const response = await fetch(url, {
-      method: "GET",
+    const response = await fetch("/api/streamlit-health", {
       cache: "no-store",
-      mode: "cors",
       signal,
     });
-    if (response.type === "opaque" || response.type === "opaqueredirect") {
-      return "unknown";
-    }
-    return response.ok ? "up" : "down";
+    if (!response.ok) return "unknown";
+    const body = (await response.json()) as { ok?: boolean };
+    return body.ok === true ? "up" : "down";
   } catch {
     return "unknown";
   }
@@ -242,7 +238,7 @@ export function StreamlitEmbed() {
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 8000);
 
-    probeStreamlit(STREAMLIT_URL, controller.signal).then((next) => {
+    probeStreamlit(controller.signal).then((next) => {
       if (!cancelled) setState(next);
     });
 
@@ -281,8 +277,8 @@ export function StreamlitEmbed() {
               <MonitorCog className="mt-0.5 size-4 shrink-0" />
               <p>
                 Health is unknown for <code className="text-foreground">{STREAMLIT_URL}</code>.
-                The browser could not read a status (cross-origin block or no response). Open a
-                module in a new tab to use it. Locally, start Streamlit with{" "}
+                The status check did not finish. Open a module in a new tab to use it. Locally,
+                start Streamlit with{" "}
                 <code className="text-foreground">uv run streamlit run dashboard/app.py</code>.
               </p>
             </div>

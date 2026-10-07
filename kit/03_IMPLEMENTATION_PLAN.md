@@ -1020,6 +1020,40 @@ All critical tests in `07_TESTING_AND_ACCEPTANCE.md` pass.
 
 ---
 
+# Phase 16 — Business Experience
+
+## Objective
+
+Add a second, non-technical Business Experience for personas P5–P9: role-based identity, plain-language `/b/*` screens, onboarding and guided journeys, semantic metrics served from a Postgres read model, a grounded assistant with answer cards, and optional Gemini Live voice (Matrix Orb + SVG character). Extend the operational data model so the app covers targets, margins, alerts, procurement, and proposals beyond RESTOCK. The ops console at `/` remains for Ops and Inventory.
+
+Authoritative design: `docs/superpowers/specs/2026-10-07-business-experience-design.md`. Decisions: ADR-002 (RBAC), ADR-003 (serving read model), ADR-004 (Gemini opt-in). Requirements: FR-033–FR-045.
+
+## Deliverables (B0–B8)
+
+| Slice | Deliverables |
+|---|---|
+| **B0 Governance** | Design spec, PRD personas/FRs, ADRs 002–004, this phase + `TASKS.md` checklist (docs only) |
+| **B1 Identity & RBAC** | `V007__identity.sql`, `src/quickcart/identity/`, `api/deps.py` principal/permission/scope, JWT cookie auth, frontend middleware + `/qc-api` rewrite, seeded persona users, RBAC matrix tests |
+| **B2 Semantic + serving** | `semantics/metrics.yaml`, `V008` serving tables, snapshot job after gold refresh, `/api/v1/b/*` with `MetricValue`, measured Today p95 |
+| **B3 Business UI** | `(business)/b` shell + ExperienceSwitcher, 7-step onboarding, Today/Stores/Products/Delivery/Money/Customers/Actions/Learn/Settings, journeys A–C, formatters + demo fixtures, Vitest |
+| **B4 Assistant v2 (text)** | `google-genai` tool loop, scoped `ToolRegistry`, business tools, `AnswerDraft` + provenance, real SSE cards, Ask/⌘K, business eval set |
+| **B5 Voice** | Matrix Orb (+speaking), SVG face, ephemeral voice sessions, PCM worklet + Live client + barge-in, tool bridge, fallbacks, fake Live tests |
+| **B6 Data wave 1** | `V009`–`V013` (costs, targets, refunds/wastage, promo redemptions, ratings), simulator + Gold marts, Targets/Money margin, journey D |
+| **B7 Data wave 2 + actions** | `V014`–`V018` (alerts, suppliers/POs, rider shifts, assistant/reports/proposals v2, CDC), notification centre, Mailpit digests, journey E |
+| **B8 Hardening** | Playwright persona + voice flows, ESLint/typecheck in CI, WCAG AA + reduced motion, learning notes, clean-clone validation, ruff + pytest green |
+
+## Exit criteria
+
+- Business personas can log in, complete onboarding, use Today and journeys A–C without ops jargon
+- Scope leak tests pass for REST, text agent, and voice tool bridge
+- Serving-backed `/b/today` meets measured local p95 target (or documented measured baseline with freshness badge)
+- Assistant eval set: ≥90% tool/card accuracy, 100% answer-contract compliance, zero scope leaks
+- Without `GEMINI_API_KEY`, text works via local fallback and voice is hidden; with key, voice session completes a tool-backed turn
+- Proposals v2 approve only via on-screen principal action
+- Phase checklist in `kit/TASKS.md` Phase 16 checked only when corresponding tests pass
+
+---
+
 # Suggested implementation cadence
 
 Do not treat this as a strict calendar, but a learning sequence.

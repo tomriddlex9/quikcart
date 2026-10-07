@@ -14,9 +14,9 @@ export const PHASES: PhaseRow[] = [
   {
     phase: "4",
     name: "Medallion MVP",
-    state: "code-without-boxes",
-    working: "Bronze, Silver, Gold, quarantine, and make lakehouse exist and later phases depend on them.",
-    open: "Every Phase 4 checkbox in kit/TASKS.md is still empty, and there is no docs/learning/phase-4.md. README marks the phase complete. /api/v1/system/status follows the checkboxes, so it reports Phase 4 incomplete.",
+    state: "done",
+    working: "Bronze, Silver, Gold, quarantine, and the idempotent pipeline test. TASKS.md boxes match that pipeline.",
+    open: "There is still no docs/learning/phase-4.md.",
   },
   { phase: "5", name: "Quality + optimization", state: "done", working: "Bad-data injection, MERGE, SCD2, and the Spark experiments.", open: "" },
   { phase: "6", name: "Object storage", state: "done", working: "SeaweedFS profile and an S3 Delta smoke path.", open: "Raw files stay local. S3 existence checks are skipped." },
@@ -39,8 +39,8 @@ export const PHASES: PhaseRow[] = [
 
 export const DRIFTS = [
   {
-    title: "Phase 4 checkboxes vs the code",
-    body: "The lakehouse is implemented and Phases 5–14 are checked, but Phase 4's eighteen boxes are empty. Status parsing in src/quickcart/api/status.py trusts those boxes. This page does not flip them: boxes change only after their own acceptance tests are recorded as passing.",
+    title: "Phase 4 learning note",
+    body: "The lakehouse pipeline and tests/integration/test_pipeline.py cover Bronze, Silver, quarantine, Gold, and idempotent reruns, so the Phase 4 boxes in kit/TASKS.md are checked. docs/learning/phase-4.md is still missing.",
   },
   {
     title: "Phase 15 README vs TASKS.md",

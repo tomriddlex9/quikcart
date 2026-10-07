@@ -6,20 +6,32 @@ import type { ApiMode } from "@/lib/api";
 import { Pill, StatusDot } from "./pill";
 
 /**
- * Top-right status chip: LIVE (pulsing), DEMO, or CONNECTING.
+ * Top-right status chip: live, last live, connecting, or unreachable.
  * Shows when the data was last refreshed.
  */
 export function RefreshIndicator({
   mode,
   lastUpdated,
   countdown,
+  error,
 }: {
   mode: ApiMode;
   lastUpdated: Date | null;
   countdown?: number | null;
+  error?: string | null;
 }) {
-  const tone = mode === "live" ? "teal" : mode === "demo" ? "amber" : "neutral";
-  const label = mode === "live" ? "live API" : mode === "demo" ? "demo data" : "connecting";
+  const failed = mode === "offline" && Boolean(error);
+  const tone = mode === "live" ? "teal" : mode === "demo" ? "neutral" : mode === "stale" || failed ? "amber" : "neutral";
+  const label =
+    mode === "live"
+      ? "live API"
+      : mode === "demo"
+        ? "demo data"
+        : mode === "stale"
+          ? "last live"
+          : failed
+            ? "unreachable"
+            : "connecting";
   return (
     <div className="flex items-center gap-2">
       <Pill tone={tone}>

@@ -1,14 +1,15 @@
 // Fetch helpers for the QuickCart API.
 //
 // Mode semantics (surfaced in the UI, never hidden):
-//   "live" — the API answered and the payload is real
-//   "demo" — the API could not be reached; clearly-labeled local demo data is shown instead
-//   "offline" — unreachable and no demo fallback was provided for this call
+//   "live"    — the API answered and the payload is real
+//   "stale"   — a later poll failed; the last live payload is still on screen
+//   "offline" — the API has not answered yet, or the first request failed
+//   "demo"    — the header toggle is Demo; the payload is a bundled fixture
 
 export const API_BASE: string =
   process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
 
-export type ApiMode = "live" | "stale" | "demo" | "offline";
+export type ApiMode = "live" | "stale" | "offline" | "demo";
 
 export interface ApiState<T> {
   mode: ApiMode;
@@ -17,7 +18,7 @@ export interface ApiState<T> {
   lastUpdated: Date | null;
 }
 
-const DEFAULT_TIMEOUT_MS = 20_000;
+const DEFAULT_TIMEOUT_MS = 60_000;
 
 async function fetchWithTimeout(
   url: string,

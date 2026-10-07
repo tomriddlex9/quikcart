@@ -145,6 +145,91 @@ Needs:
 - SQL access,
 - consistent business metrics.
 
+## P5 — Business Executive (front-line)
+
+Primary user of the Business Experience (`/b/*`). Covers one or two cities; not technical.
+
+**Goals:** send a credible morning brief, chase store managers on stockouts / late deliveries / cancellations, escalate what they cannot fix alone.
+
+**Tech comfort:** low (≈2/5). Must never see Gold, Delta, SQL, or pipeline jargon.
+
+**Primary screens:** `/b/today`, `/b/actions`, `/b/ask`, `/b/learn`.
+
+**Key questions:**
+
+- Why did Bengaluru sales drop yesterday?
+- What needs me before noon?
+- Which store is worst on late deliveries today?
+- Are bestsellers about to run out?
+
+## P6 — City Business Manager
+
+Owns city sales, growth, and P&L contribution.
+
+**Goals:** stay on monthly target, launch/pause promos, set store targets, explain city variance to leadership.
+
+**Tech comfort:** moderate (≈3/5). Comfortable with comparisons and pacing; still wants plain language.
+
+**Primary screens:** `/b/stores`, `/b/targets`, `/b/money`, `/b/reports`.
+
+**Key questions:**
+
+- Am I on track this month?
+- Why did this city underperform vs last week?
+- Did yesterday's promo lift units or just discount?
+- Which stores should I visit this week?
+
+## P7 — Dark Store Manager (business view)
+
+Runs a single dark store; mobile-first; scoped to one store.
+
+**Goals:** keep shelves filled, clear late-order risk, raise restocks and incidents without using the ops console.
+
+**Tech comfort:** low (≈2/5). Needs large tap targets and short sentences.
+
+**Primary screens:** `/b/stores/[id]`, `/b/products`, `/b/delivery`, `/b/actions`.
+
+**Key questions:**
+
+- What runs out in the next four hours?
+- Which orders will be late?
+- How did my store do yesterday vs usual?
+- Can I request a restock now?
+
+## P8 — Category Manager
+
+Owns assortment and promo performance for one or more grocery categories.
+
+**Goals:** protect availability of bestsellers, cut slow movers / wastage, measure promo lift and discount depth.
+
+**Tech comfort:** moderate (≈3/5). Comfortable with category filters and product tables.
+
+**Primary screens:** `/b/products`, `/b/money` (margin when available), `/b/targets`.
+
+**Key questions:**
+
+- Are my top products available across stores?
+- Which SKUs are slow movers this week?
+- Did this promo actually lift units?
+- Where is wastage / expiry risk highest?
+
+## P9 — Leadership / CXO
+
+Company-wide view across all cities; wants narrative, not tables.
+
+**Goals:** daily digest, city comparison, month-to-date vs target, voice Q&A while commuting.
+
+**Tech comfort:** low (≈2/5). Prefers briefing + voice over drill-down.
+
+**Primary screens:** `/b/today`, `/b/reports`, `/b/ask` (voice dock).
+
+**Key questions:**
+
+- How are we doing vs target this month?
+- Which city is best / worst today?
+- What are the three biggest risks this week?
+- Summarise yesterday in sixty seconds.
+
 ---
 
 # 6. Core user journeys
@@ -410,6 +495,58 @@ Analytics, prediction, agent, and proposal functionality shall be exposed throug
 ## FR-032 — Health endpoints
 
 Each major service must expose or support a health check used by the local runbook.
+
+## FR-033 — Identity and RBAC
+
+The platform shall provide authenticated users, roles, permissions, and data scopes (`company` | `city` | `store` | `category`). The server shall enforce permission and scope on every business, assistant, and voice tool request. Business roles shall not receive free-form SQL execution. Proposal approver identity shall come from the logged-in principal, not free-text input. Administration and approval duties shall remain separable (admins shall not approve by default).
+
+## FR-034 — Business experience shell
+
+The platform shall expose a second, non-technical Business Experience under `/b/*` alongside the existing ops console at `/`. Role-based routing after login shall land business personas on `/b/today` (or onboarding) and ops/inventory personas on the ops console. Visual language shall remain the existing monochrome/steel-blue theme; only status tokens (`good` / `watch` / `bad`) may be added.
+
+## FR-035 — Onboarding
+
+First-run business users shall complete a resumable onboarding wizard (role, home scope, pinned headline metrics, assistant introduction, first guided question, briefing time). Progress shall persist in user preferences. A getting-started checklist shall remain visible on Today until completed.
+
+## FR-036 — Guided journeys
+
+The platform shall provide serial, step-by-step guided journeys that navigate real business screens, spotlight relevant UI, explain metrics in plain language with the user's numbers, and save progress server-side. Minimum journeys: store yesterday review, stockout→restock, late-delivery root cause; promo review and weekly-review drafting when supporting data exists.
+
+## FR-037 — Semantic metric registry
+
+Every business-facing metric shall be defined once in a semantic registry (plain label, formula, unit, source, direction, thresholds, explainer, synonyms). The registry shall be the single source of truth for the business API, assistant tools, UI glossary, and generated data-dictionary docs. Competing formulas for the same metric (e.g. late-delivery rate) are forbidden.
+
+## FR-038 — Serving read model
+
+Business screens and APIs shall read from a Postgres serving snapshot of Gold metrics, not from Spark on the request path. A snapshot job shall refresh serving tables after Gold refresh. Freshness shall be visible in the UI. Local target: `/b/today` p95 under 150 ms when measured.
+
+## FR-039 — Business API
+
+Versioned business routes under `/api/v1/b/` shall return pre-aggregated, plain-language-ready payloads (`MetricValue` with label, value, display, delta, compare_to, status, explanation, as_of) for Today, stores, products, delivery, customers, money, targets, alerts, journeys, reports, and metric explainers. Metric explanations shall be deterministic templates, not free-form LLM text.
+
+## FR-040 — Assistant answer cards
+
+The business assistant shall return a structured answer contract (headline, short bullets, typed visual cards, follow-ups). Numeric claims in prose shall reference tool results and pass a provenance check; failing answers fall back to cards-only. Streaming shall emit card and follow-up events. The same conversation shall be shared across text Ask surfaces and voice.
+
+## FR-041 — Gemini Live voice (opt-in)
+
+When configured with a server-side Gemini API key and voice permission, the platform may offer real-time voice via Gemini Live using backend-minted ephemeral tokens (API key never shipped to the browser). Without a key, voice UI is hidden and text falls back to the local LLM path. Voice may draft PENDING proposals only; approval remains an on-screen action.
+
+## FR-042 — Matrix Orb character
+
+The assistant presence shall use the Rare UI Matrix Orb (idle / listening / thinking, plus speaking) with a small monochrome SVG face overlaid for mouth/eye feedback driven by audio level. Push-to-talk is default. Reduced-motion prefers a static orb. Visible rareui.com attribution is required.
+
+## FR-043 — Targets
+
+Users with target permissions shall view and (where allowed) edit scoped metric targets and pacing against actuals. Initial targets may be simulator-seeded from trailing averages and remain editable. Status against target feeds Today, Money, and Leadership digests.
+
+## FR-044 — Alerts and notifications
+
+The platform shall evaluate scoped alert rules, de-duplicate alerts, deliver in-app notifications (and optional local-SMTP digests), and cap push volume per user per day. Needs-attention items on Today shall surface the highest-impact alerts with a suggested action and snooze.
+
+## FR-045 — Proposals v2
+
+Proposal types shall expand beyond RESTOCK to cover business actions (promo pause/launch, target change, incident, store notify, transfer, purchase-order create, and equivalents). Each proposal shall record creator, approver principal, channel (web/agent/voice), and risk level. Executors run only after explicit on-screen approval by a permitted user; voice never auto-approves.
 
 ---
 

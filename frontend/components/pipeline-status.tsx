@@ -9,7 +9,7 @@ import { PipelineStrip } from "@/components/live/pipeline-strip";
 import { KpiCard } from "@/components/kpi-card";
 import { Pill, StatusDot } from "@/components/pill";
 import { RefreshIndicator } from "@/components/refresh-indicator";
-import { EmptyState, Loading } from "@/components/states";
+import { EmptyState, ErrorState, Loading } from "@/components/states";
 import {
   Accordion,
   AccordionContent,
@@ -32,15 +32,8 @@ import {
   StackedTabsTrigger,
 } from "@/components/ui/stacked-tabs";
 import { buildActivityLog } from "@/lib/activity-log";
-import {
-  DEMO_ACTIVITY_LOG,
-  DEMO_ANOMALIES,
-  DEMO_KPIS,
-  DEMO_PIPELINE_LAG_SECONDS,
-  DEMO_PROPOSALS,
-  DEMO_QUALITY_SCORE,
-  DEMO_SYSTEM_STATUS,
-} from "@/lib/demo";
+import { useDataMode } from "@/lib/data-mode";
+import { DEMO_ACTIVITY_LOG } from "@/lib/demo";
 import { formatNumber } from "@/lib/format";
 import type { ApiMode } from "@/lib/api";
 import {
@@ -94,18 +87,19 @@ function useCountdown(lastUpdated: Date | null): number | null {
 
 function resolvePageMode(modes: ApiMode[], liveMode: ApiMode): ApiMode {
   const all = [...modes, liveMode];
-  if (all.includes("demo")) return "demo";
   if (all.includes("stale")) return "stale";
-  if (all.includes("offline")) return "offline";
-  return "live";
+  if (all.every((mode) => mode === "live")) return "live";
+  if (all.every((mode) => mode === "demo")) return "demo";
+  return "offline";
 }
 
 export function PipelineStatus() {
-  const status = useApiData<SystemStatus>("/api/v1/system/status", DEMO_SYSTEM_STATUS, REFRESH_MS);
-  const kpis = useApiData<Kpis>("/api/v1/overview/kpis", DEMO_KPIS, REFRESH_MS);
-  const anomalies = useApiData<AnomalyRow[]>("/api/v1/anomalies", DEMO_ANOMALIES, REFRESH_MS);
-  const proposals = useApiData<Proposal[]>("/api/v1/proposals", DEMO_PROPOSALS, REFRESH_MS);
+  const status = useApiData<SystemStatus>("/api/v1/system/status", REFRESH_MS);
+  const kpis = useApiData<Kpis>("/api/v1/overview/kpis", REFRESH_MS);
+  const anomalies = useApiData<AnomalyRow[]>("/api/v1/anomalies", REFRESH_MS);
+  const proposals = useApiData<Proposal[]>("/api/v1/proposals", REFRESH_MS);
   const live = useLiveStream();
+  const { source } = useDataMode();
 
   const [copied, setCopied] = useState(false);
   const countdown = useCountdown(status.lastUpdated);
@@ -114,6 +108,14 @@ export function PipelineStatus() {
   const kpiData = kpis.data;
 
   if (data === null) {
+    if (status.error) {
+      return (
+        <>
+          <ApiBanner mode="offline" error={status.error} />
+          <ErrorState message={status.error} />
+        </>
+      );
+    }
     return <Loading label="Waiting for /api/v1/system/status…" />;
   }
 
@@ -121,31 +123,27 @@ export function PipelineStatus() {
     [status.mode, kpis.mode, anomalies.mode, proposals.mode],
     live.mode,
   );
-  const demo = pageMode === "demo" || pageMode === "stale";
 
   const goldCounts = countGoldTablesPresent(data);
-  const pipelineLag =
-    live.pipeline?.end_to_end_lag_seconds ??
-    (live.mode === "live" || live.mode === "stale" ? null : DEMO_PIPELINE_LAG_SECONDS);
-  const qualityScore = computeQualityScore(
-    data,
-    live.pipeline,
-    DEMO_QUALITY_SCORE,
-  );
+  const pipelineLag = live.pipeline?.end_to_end_lag_seconds ?? null;
+  const qualityScore = computeQualityScore(data, live.pipeline);
   const ordersValue =
     kpiData?.orders_placed != null
       ? formatNumber(kpiData.orders_placed)
-      : live.snapshot && live.snapshot.generated_at !== new Date(0).toISOString()
+      : live.snapshot
         ? formatNumber(live.snapshot.orders_60m)
-        : formatNumber(DEMO_KPIS.orders_placed);
+        : "—";
 
   const liveLogEntries = buildActivityLog(
-    live.mode === "demo" ? null : live.snapshot,
-    live.mode === "demo" ? null : live.pipeline,
+    live.snapshot,
+    live.pipeline,
     anomalies.mode === "live" || anomalies.mode === "stale" ? anomalies.data : null,
     proposals.mode === "live" || proposals.mode === "stale" ? proposals.data : null,
   );
-  const activity = presentActivityLog(pageMode, live.mode, liveLogEntries, DEMO_ACTIVITY_LOG);
+  const activity =
+    source === "demo"
+      ? { entries: DEMO_ACTIVITY_LOG, source: "demo" as const }
+      : presentActivityLog(liveLogEntries);
   const logLoading =
     live.snapshot === null &&
     anomalies.data === null &&
@@ -159,16 +157,21 @@ export function PipelineStatus() {
   return (
     <>
       <div className="mb-4 flex flex-wrap items-center justify-end gap-2">
-        <RefreshIndicator mode={pageMode} lastUpdated={status.lastUpdated} countdown={countdown} />
+        <RefreshIndicator
+          mode={pageMode}
+          lastUpdated={status.lastUpdated}
+          countdown={countdown}
+          error={status.error ?? live.error}
+        />
       </div>
 
-      {demo ? <ApiBanner mode={pageMode} error={status.error ?? live.error} /> : null}
+      <ApiBanner mode={pageMode} error={status.error ?? live.error} />
 
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <KpiCard
           label="Orders placed"
           value={ordersValue}
-          hint={kpiData ? "Gold mart total" : "from live or demo KPIs"}
+          hint={kpiData ? "Gold mart total" : live.snapshot ? "live stream · 60m" : "waiting for Gold"}
         />
         <KpiCard
           label="Pipeline lag"
@@ -186,7 +189,7 @@ export function PipelineStatus() {
         />
         <KpiCard
           label="Quality score"
-          value={`${qualityScore}`}
+          value={qualityScore == null ? "—" : String(qualityScore)}
           hint="gold + stages − quarantine"
         />
       </div>

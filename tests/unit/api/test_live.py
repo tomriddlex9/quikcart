@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -216,6 +217,41 @@ class _Readers:
         return {"orders": self.calls}
 
 
+def test_gold_cache_single_flight_shares_one_computation() -> None:
+    import threading
+
+    started = threading.Event()
+    release = threading.Event()
+
+    class _SlowReaders:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def kpi_summary(self) -> dict[str, int]:
+            self.calls += 1
+            started.set()
+            assert release.wait(2)
+            return {"orders": self.calls}
+
+    readers = _SlowReaders()
+    cache = GoldReadersTTLCache(readers, ttl_seconds=30)
+    results: list[dict[str, int]] = []
+
+    def run() -> None:
+        results.append(cache.kpi_summary())
+
+    first = threading.Thread(target=run)
+    first.start()
+    assert started.wait(2)
+    second = threading.Thread(target=run)
+    second.start()
+    release.set()
+    first.join(2)
+    second.join(2)
+    assert readers.calls == 1
+    assert results == [{"orders": 1}, {"orders": 1}]
+
+
 def test_gold_cache_reuses_values_until_ttl_expires() -> None:
     now = [100.0]
     readers = _Readers()
@@ -224,5 +260,39 @@ def test_gold_cache_reuses_values_until_ttl_expires() -> None:
     assert cache.kpi_summary() == {"orders": 1}
     assert cache.kpi_summary() == {"orders": 1}
     now[0] = 131.0
-    assert cache.kpi_summary() == {"orders": 2}
-    assert readers.calls == 2
+    assert cache.kpi_summary() == {"orders": 1}
+    deadline = time.time() + 2
+    refreshed = {"orders": 1}
+    while refreshed != {"orders": 2} and time.time() < deadline:
+        time.sleep(0.01)
+        refreshed = cache.kpi_summary()
+    assert refreshed == {"orders": 2}
+
+
+def test_gold_cache_serves_stale_without_waiting() -> None:
+    import threading
+
+    started = threading.Event()
+    release = threading.Event()
+
+    class _SlowRefresh:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def kpi_summary(self) -> dict[str, int]:
+            self.calls += 1
+            if self.calls > 1:
+                started.set()
+                assert release.wait(2)
+            return {"orders": self.calls}
+
+    now = [0.0]
+    readers = _SlowRefresh()
+    cache = GoldReadersTTLCache(readers, ttl_seconds=10, clock=lambda: now[0])
+    assert cache.kpi_summary() == {"orders": 1}
+    now[0] = 11.0
+    started_at = time.perf_counter()
+    assert cache.kpi_summary() == {"orders": 1}
+    assert time.perf_counter() - started_at < 0.2
+    assert started.wait(2)
+    release.set()

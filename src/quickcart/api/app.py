@@ -7,6 +7,10 @@ ProposalService and the read-only SQL/catalog adapters.
 
 import contextlib
 import importlib.metadata
+import logging
+import os
+import threading
+import time
 from collections.abc import Callable
 from dataclasses import asdict
 from functools import lru_cache
@@ -17,17 +21,19 @@ import psycopg
 import structlog
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
 
 from quickcart.api import catalog as catalog_reads
+from quickcart.api.auth import router as auth_router
 from quickcart.api.cube_api import (
     CubeOperateRequest,
     CubeOperationError,
     apply_cube_operation,
     build_cube_state,
 )
+from quickcart.api.deps import OptionalPrincipal, require_permission
 from quickcart.api.layer_ops import (
     LayerOpsError,
     build_layers_catalog,
@@ -63,6 +69,10 @@ from quickcart.api.sql_service import (
 from quickcart.api.status import build_system_status
 from quickcart.config.settings import get_settings
 from quickcart.db.connection import connect
+from quickcart.identity.catalog import PROPOSAL_APPROVE_PERMISSION
+from quickcart.identity.models import Principal
+from quickcart.identity.rbac import has_permission
+from quickcart.identity.service import IdentityService, default_service
 from quickcart.lakehouse.common.paths import table_path
 from quickcart.lakehouse.common.spark import build_spark
 from quickcart.lakehouse.readers import GoldReaders
@@ -145,27 +155,144 @@ def _service(request: Request) -> ProposalService:
 ReadersDep = Annotated[GoldReaders, Depends(_readers)]
 
 
+def _actor(principal: Principal | None, fallback: str) -> str:
+    """Audit name for an approve/reject: the signed-in user wins over the request body."""
+    return principal.display_name if principal is not None else fallback
+
+
+def _authorize_decision(
+    request: Request, proposal_id: int, principal: Principal | None
+) -> None:
+    """A signed-in caller needs the approval permission that owns the proposal's type.
+
+    Anonymous callers only reach here when ``auth_enforce`` is off (the principal
+    dependency 401s otherwise), preserving the pre-auth behaviour.
+    """
+    if principal is None:
+        return
+    row = _service(request).get(proposal_id)
+    if row is None:
+        return  # the service raises the canonical 404/409
+    needed = PROPOSAL_APPROVE_PERMISSION.get(row["proposal_type"])
+    if needed is None or not has_permission(principal, needed):
+        raise HTTPException(
+            status_code=403,
+            detail=f"missing permission: {needed or 'proposal:approve:escalated'}",
+        )
+
+
 def _translate(error: ProposalError) -> HTTPException:
     return HTTPException(status_code=error.status_code, detail=error.detail)
+
+
+def _run_startup_warmup(app: FastAPI) -> None:
+    """Keep Gold cached after listen so /health stays up during Spark work.
+
+    The first pass fills the cache. Later passes see fresh entries and return
+    immediately; expired entries refresh in the background.
+    """
+    logging.getLogger("kafka").setLevel(logging.CRITICAL)
+    while True:
+        try:
+            readers = _readers_for_app(app)
+            if readers is not None:
+                _warm_overview_cache(readers)
+        except Exception as exc:  # warmup is best-effort
+            log.warning("api.gold_warmup_skipped", error=str(exc))
+        time.sleep(45)
+
+
+def _seed_identity(app: FastAPI) -> None:
+    """Seed demo users on first start (``app_users`` empty). Idempotent.
+
+    Skipped under pytest unless an identity service was injected, so DB-less
+    tests never touch PostgreSQL. Failures are logged loudly; with
+    ``auth_enforce`` off the console keeps working without identities.
+    Manual path: ``uv run python -m quickcart.identity.seed``.
+    """
+    service: IdentityService | None = getattr(app.state, "identity_service", None)
+    if service is None:
+        if os.environ.get("PYTEST_CURRENT_TEST"):
+            return
+        service = default_service()
+    try:
+        created = service.seed_if_empty()
+    except Exception as exc:  # DB down / V007 not applied: surface, don't crash the API
+        log.error("api.identity_seed_failed", error=str(exc), hint="run db.init then identity.seed")
+        return
+    if created:
+        log.info("api.identity_seeded", users=created)
 
 
 @contextlib.asynccontextmanager
 async def _lifespan(app: FastAPI):
     configure_logging(get_settings().log_level)
     log.info("api.startup", service="quickcart-api", version=__version__)
-    try:
-        from quickcart.api.gold_cache import warmup_gold_cache
+    _seed_identity(app)
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        try:
+            from quickcart.agents.service import warmup_agent_runtime
 
-        readers = _readers_for_app(app)
-        if readers is not None:
-            warmup_gold_cache(readers)
-    except Exception as exc:  # warmup is best-effort
-        log.warning("api.gold_warmup_skipped", error=str(exc))
+            warmup_agent_runtime()
+        except Exception as exc:
+            log.warning("api.agent_warmup_skipped", error=str(exc))
+    else:
+        threading.Thread(
+            target=_run_startup_warmup,
+            args=(app,),
+            name="qc-api-warmup",
+            daemon=True,
+        ).start()
     yield
     spark = app.state.spark
     if app.state.spark_owned and spark is not None:
         log.info("api.shutdown", stopping_spark=True)
         spark.stop()
+
+
+def _cached_rows(
+    readers: GoldReaders,
+    key: tuple[Any, ...],
+    load: Callable[[], list[dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    from quickcart.api.gold_cache import gold_cache_for
+
+    return gold_cache_for(readers).call_fn(key, load)
+
+
+def _warm_overview_cache(readers: GoldReaders) -> None:
+    """Fill the overview cache before the process accepts traffic.
+
+    The console requests these together. Computing them once at startup keeps
+    the first page inside the browser timeout instead of falling back to demo
+    figures.
+    """
+    from quickcart.api.gold_cache import gold_cache_for
+
+    cache = gold_cache_for(readers)
+    steps: tuple[tuple[str, Callable[[], Any]], ...] = (
+        ("kpi_summary", cache.kpi_summary),
+        ("orders_trend", lambda: _collect(readers.orders_trend(), limit=365)),
+        ("stores", lambda: _collect(readers.stores())),
+        ("inventory_risks", lambda: _collect(readers.inventory_risk(limit=200))),
+        ("anomalies", lambda: _anomaly_rows(readers)),
+    )
+    for name, load in steps:
+        try:
+            if name == "kpi_summary":
+                load()
+            else:
+                cache.call_fn((name,), load)
+        except Exception as exc:
+            log.warning("api.gold_warmup_skipped", step=name, error=str(exc))
+
+
+def _anomaly_rows(readers: GoldReaders) -> list[dict[str, Any]]:
+    path = table_path("gold", ANOMALIES_TABLE, readers.root)
+    if not path.exists():
+        return []
+    df = readers.spark.read.format("delta").load(str(path))
+    return _collect(df.orderBy(F.desc("observed_on")), limit=100)
 
 
 def _readers_for_app(app: FastAPI) -> GoldReaders | None:
@@ -191,6 +318,7 @@ def create_app(
     proposal_service: ProposalService | None = None,
     connect_factory: Callable[..., psycopg.Connection] | None = None,
     llm: Any | None = None,
+    identity_service: IdentityService | None = None,
 ) -> FastAPI:
     """Application factory. Parameters exist so tests can inject the shared
     test Spark session, a tmp data root, a service bound to the test DB, a
@@ -203,6 +331,7 @@ def create_app(
     app.state.proposal_service = proposal_service or ProposalService()
     app.state.connect_factory = connect_factory or connect
     app.state.llm = llm
+    app.state.identity_service = identity_service
 
     from quickcart.observability import CorrelationIdMiddleware
 
@@ -210,9 +339,12 @@ def create_app(
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_cors_origins(),
-        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
         allow_headers=["*"],
     )
+
+    app.include_router(auth_router)
 
     try:
         from quickcart.api.live import register_live_routes
@@ -239,22 +371,40 @@ def create_app(
 
     register_sim_routes(app)
 
+    from quickcart.api.business import register_business_routes
+
+    register_business_routes(app)
+
+    from quickcart.api.assistant import register_assistant_routes
+
+    register_assistant_routes(app)
+
+    from quickcart.api.voice import register_voice_routes
+
+    register_voice_routes(app)
+
     @app.get("/health")
-    def health() -> dict[str, str]:
+    async def health() -> dict[str, str]:
         return {"status": "ok", "service": "quickcart-api", "version": __version__}
 
     # --- analytics (Gold via readers) -------------------------------------------
     @app.get("/api/v1/overview/kpis")
     def overview_kpis(readers: ReadersDep) -> dict[str, Any]:
-        return readers.kpi_summary()
+        from quickcart.api.gold_cache import gold_cache_for
+
+        return gold_cache_for(readers).kpi_summary()
 
     @app.get("/api/v1/trends/orders")
     def orders_trend(readers: ReadersDep) -> list[dict[str, Any]]:
-        return _collect(readers.orders_trend(), limit=365)
+        return _cached_rows(
+            readers,
+            ("orders_trend",),
+            lambda: _collect(readers.orders_trend(), limit=365),
+        )
 
     @app.get("/api/v1/stores")
     def stores(readers: ReadersDep) -> list[dict[str, Any]]:
-        return _collect(readers.stores())
+        return _cached_rows(readers, ("stores",), lambda: _collect(readers.stores()))
 
     @app.get("/api/v1/stores/{store_id}/metrics")
     def store_metrics(store_id: int, readers: ReadersDep) -> dict[str, Any]:
@@ -271,10 +421,14 @@ def create_app(
         readers: ReadersDep, store_id: int | None = None
     ) -> list[dict[str, Any]]:
         cap = 10_000 if store_id is not None else 200
-        df = readers.inventory_risk(limit=cap)
-        if store_id is not None:
-            df = df.filter(F.col("store_id") == store_id)
-        return _collect(df)
+
+        def load() -> list[dict[str, Any]]:
+            df = readers.inventory_risk(limit=cap)
+            if store_id is not None:
+                df = df.filter(F.col("store_id") == store_id)
+            return _collect(df)
+
+        return _cached_rows(readers, ("inventory_risks", store_id, cap), load)
 
     @app.get("/api/v1/orders/{order_id}")
     def get_order(order_id: int, readers: ReadersDep) -> dict[str, Any]:
@@ -296,16 +450,16 @@ def create_app(
     @app.get("/api/v1/anomalies")
     def anomalies(readers: ReadersDep) -> Response:
         path = table_path("gold", ANOMALIES_TABLE, readers.root)
+        rows = _cached_rows(readers, ("anomalies",), lambda: _anomaly_rows(readers))
         if not path.exists():
             return JSONResponse(
-                content=[],
+                content=rows,
                 headers={
                     "X-Data-Warning": f"{ANOMALIES_TABLE} not built yet"
                     " (run the Phase 11 anomaly model)"
                 },
             )
-        df = readers.spark.read.format("delta").load(str(path))
-        return JSONResponse(content=_collect(df.orderBy(F.desc("observed_on")), limit=100))
+        return JSONResponse(content=rows)
 
     @app.get("/api/v1/predictions/delivery/{order_id}")
     def delivery_prediction(
@@ -473,12 +627,37 @@ def create_app(
 
     # --- agent (Phase 13 owns the service) -----------------------------------------
     @app.post("/api/v1/agent/chat", response_model=ChatResponse)
-    def agent_chat(body: ChatRequest) -> ChatResponse:
+    def agent_chat(
+        body: ChatRequest,
+        principal: Annotated[Principal, Depends(require_permission("copilot:chat"))],
+    ) -> ChatResponse:
         service = _get_agent_service()
         if service is None:
             raise HTTPException(status_code=503, detail="agent not available")
-        result = service.chat(message=body.message, session_id=body.session_id)
+        result = service.chat(
+            message=body.message, session_id=body.session_id, principal=principal
+        )
         return ChatResponse(**result)
+
+    @app.post("/api/v1/agent/chat/stream")
+    def agent_chat_stream(
+        body: ChatRequest,
+        principal: Annotated[Principal, Depends(require_permission("copilot:chat"))],
+    ) -> StreamingResponse:
+        service = _get_agent_service()
+        if service is None or not hasattr(service, "chat_sse"):
+            raise HTTPException(status_code=503, detail="agent not available")
+        return StreamingResponse(
+            service.chat_sse(
+                message=body.message, session_id=body.session_id, principal=principal
+            ),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     # --- proposals (human-approved actions) ------------------------------------------
     @app.post("/api/v1/proposals", response_model=ProposalOut, status_code=201)
@@ -509,17 +688,23 @@ def create_app(
 
     @app.post("/api/v1/proposals/{proposal_id}/approve", response_model=ProposalOut)
     def approve_proposal(
-        proposal_id: int, body: ApproveRequest, request: Request
+        proposal_id: int, body: ApproveRequest, request: Request, principal: OptionalPrincipal
     ) -> dict[str, Any]:
         try:
-            return _service(request).approve(proposal_id, body.approver)
+            _authorize_decision(request, proposal_id, principal)
+            return _service(request).approve(proposal_id, _actor(principal, body.approver))
         except ProposalError as exc:
             raise _translate(exc) from exc
 
     @app.post("/api/v1/proposals/{proposal_id}/reject", response_model=ProposalOut)
-    def reject_proposal(proposal_id: int, body: RejectRequest, request: Request) -> dict[str, Any]:
+    def reject_proposal(
+        proposal_id: int, body: RejectRequest, request: Request, principal: OptionalPrincipal
+    ) -> dict[str, Any]:
         try:
-            return _service(request).reject(proposal_id, body.approver, body.reason)
+            _authorize_decision(request, proposal_id, principal)
+            return _service(request).reject(
+                proposal_id, _actor(principal, body.approver), body.reason
+            )
         except ProposalError as exc:
             raise _translate(exc) from exc
 

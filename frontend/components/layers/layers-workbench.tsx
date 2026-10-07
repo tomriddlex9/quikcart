@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { ApiBanner } from "@/components/api-banner";
 import { Pill, StatusDot } from "@/components/pill";
-import { Loading } from "@/components/states";
+import { ErrorState, Loading } from "@/components/states";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -35,13 +35,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatNumber } from "@/lib/format";
-import {
-  DEMO_LAYER_SAMPLES,
-  DEMO_LAYERS_CATALOG,
-  type LayerOperation,
-  type LayerSample,
-  type LayersCatalog,
-  type MedallionLayer,
+import type {
+  LayerOperation,
+  LayerSample,
+  LayersCatalog,
+  MedallionLayer,
 } from "@/lib/layer-cube-types";
 import { useApiData } from "@/lib/use-api";
 
@@ -510,52 +508,39 @@ export function LayersWorkbench() {
   const searchParams = useSearchParams();
   const deepLinkOp = searchParams.get("op");
 
-  const catalogState = useApiData<LayersCatalog>(
-    "/api/v1/layers/operations",
-    DEMO_LAYERS_CATALOG,
-    60_000,
-  );
-  const catalog = catalogState.data ?? DEMO_LAYERS_CATALOG;
-  const isLive = catalogState.mode === "live";
+  const catalogState = useApiData<LayersCatalog>("/api/v1/layers/operations", 60_000);
+  const catalog = catalogState.data;
+  const isLive = catalogState.mode === "live" || catalogState.mode === "stale";
   const showBanner = catalogState.mode !== "live";
 
   const [activeLayer, setActiveLayer] = useState<LayerFilter>("bronze");
   const [selectedOpId, setSelectedOpId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!deepLinkOp) return;
+    if (!deepLinkOp || !catalog) return;
     const match = catalog.operations.find((op) => op.id === deepLinkOp);
     if (!match) return;
     if (match.layer !== "raw") {
       setActiveLayer(match.layer);
     }
     setSelectedOpId(match.id);
-  }, [deepLinkOp, catalog.operations]);
+  }, [deepLinkOp, catalog]);
 
   const opsForLayer = useMemo(
     () =>
-      activeLayer === "all"
-        ? catalog.operations
-        : catalog.operations.filter((op) => op.layer === activeLayer),
-    [catalog.operations, activeLayer],
+      !catalog
+        ? []
+        : activeLayer === "all"
+          ? catalog.operations
+          : catalog.operations.filter((op) => op.layer === activeLayer),
+    [catalog, activeLayer],
   );
 
   const selectedOp =
-    catalog.operations.find((op) => op.id === selectedOpId) ?? opsForLayer[0] ?? null;
-
-  const demoSampleFallback: LayerSample = selectedOp
-    ? (DEMO_LAYER_SAMPLES[selectedOp.id] ?? {
-        layer: selectedOp.layer,
-        op_id: selectedOp.id,
-        before: [],
-        after: [],
-        notes: [],
-      })
-    : { layer: "bronze", before: [], after: [], notes: [] };
+    catalog?.operations.find((op) => op.id === selectedOpId) ?? opsForLayer[0] ?? null;
 
   const sampleState = useApiData<LayerSample>(
     selectedOp ? `/api/v1/layers/operations/${selectedOp.id}/sample` : null,
-    demoSampleFallback,
     0,
   );
 
@@ -563,30 +548,26 @@ export function LayersWorkbench() {
     if (!selectedOp) {
       return { layer: "bronze", before: [], after: [], notes: [] };
     }
-    if (isLive) {
-      return (
-        sampleState.data ?? {
-          layer: selectedOp.layer,
-          op_id: selectedOp.id,
-          before: [],
-          after: [],
-          notes: [],
-        }
-      );
-    }
     return (
-      DEMO_LAYER_SAMPLES[selectedOp.id] ??
       sampleState.data ?? {
         layer: selectedOp.layer,
         op_id: selectedOp.id,
         before: [],
         after: [],
-        notes: [],
+        notes: sampleState.error ? [`Sample unavailable: ${sampleState.error}`] : [],
       }
     );
-  }, [isLive, sampleState.data, selectedOp]);
+  }, [sampleState.data, sampleState.error, selectedOp]);
 
-  if (catalogState.data === null) {
+  if (catalog === null) {
+    if (catalogState.error) {
+      return (
+        <>
+          <ApiBanner mode="offline" error={catalogState.error} />
+          <ErrorState message={catalogState.error} />
+        </>
+      );
+    }
     return <Loading label="Loading layer operations…" />;
   }
 

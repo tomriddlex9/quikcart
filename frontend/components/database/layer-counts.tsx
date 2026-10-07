@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { apiGetJson } from "@/lib/api";
-import type { LineageLayer, LivePipeline } from "@/lib/live-types";
+import { useDataMode } from "@/lib/data-mode";
+import { DEMO_LIVE_PIPELINE, type LineageLayer, type LivePipeline } from "@/lib/live-types";
 
 const POLL_INTERVAL_MS = 10_000;
 const DISPLAY_LAYERS: Array<{ layer: LineageLayer; label: string }> = [
@@ -25,7 +26,15 @@ export function LayerCounts() {
   const [refreshing, setRefreshing] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const { source } = useDataMode();
+
   useEffect(() => {
+    if (source === "demo") {
+      setPipeline(DEMO_LIVE_PIPELINE);
+      setError(null);
+      setRefreshing(false);
+      return;
+    }
     let active = true;
 
     async function refresh() {
@@ -48,7 +57,7 @@ export function LayerCounts() {
       active = false;
       window.clearInterval(interval);
     };
-  }, []);
+  }, [source]);
 
   const totals = useMemo(
     () =>

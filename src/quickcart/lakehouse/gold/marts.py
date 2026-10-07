@@ -331,10 +331,284 @@ def gold_product_performance(
     return per_product
 
 
+def gold_store_scorecard_daily(hourly: DataFrame) -> DataFrame:
+    """Roll hourly store metrics up to a daily scorecard grain."""
+    return (
+        hourly.withColumn("day", F.to_date("metric_hour"))
+        .groupBy("day", "store_id")
+        .agg(
+            F.sum("orders_placed").alias("orders"),
+            F.sum("orders_cancelled").alias("orders_cancelled"),
+            F.sum("orders_delivered").alias("orders_delivered"),
+            F.sum("gmv").alias("sales"),
+            F.sum("net_revenue").alias("net_sales"),
+            F.avg("late_delivery_rate").alias("late_rate"),
+            F.avg("avg_delivery_minutes").alias("avg_delivery_minutes"),
+            F.avg("payment_failure_rate").alias("payment_failure_rate"),
+            F.avg("cancel_rate").alias("cancel_rate"),
+        )
+        .withColumn(
+            "average_basket",
+            F.round(
+                F.col("sales")
+                / F.nullif(F.col("orders") - F.col("orders_cancelled"), F.lit(0)),
+                2,
+            ),
+        )
+        .withColumn(
+            "on_time_rate",
+            F.round(F.lit(1.0) - F.coalesce(F.col("late_rate"), F.lit(0.0)), 4),
+        )
+        .select(
+            "day",
+            "store_id",
+            F.col("sales").cast("decimal(18,2)").alias("sales"),
+            "orders",
+            "average_basket",
+            F.round("on_time_rate", 4).alias("on_time_rate"),
+            F.round("late_rate", 4).alias("late_rate"),
+            F.round("cancel_rate", 4).alias("cancel_rate"),
+            F.round("avg_delivery_minutes", 2).alias("avg_delivery_minutes"),
+            F.round("payment_failure_rate", 4).alias("payment_failure_rate"),
+        )
+        .orderBy("day", "store_id")
+    )
+
+
+def _col_or_zero(df: DataFrame, name: str):
+    if name in df.columns:
+        return F.coalesce(F.col(name), F.lit(0))
+    return F.lit(0)
+
+
+def gold_margin_daily(orders: DataFrame, order_items: DataFrame) -> DataFrame:
+    """Store/day margin waterfall (gross -> discounts -> COGS -> contribution)."""
+    kept = orders.filter(F.col("status") != "CANCELLED").withColumn(
+        "day", F.to_date("placed_at")
+    )
+    discounts_expr = _col_or_zero(kept, "item_discount") + _col_or_zero(
+        kept, "promo_discount"
+    )
+    gross_base = (
+        F.col("subtotal") if "subtotal" in kept.columns else F.col("total_amount")
+    )
+    order_money = kept.groupBy("day", "store_id").agg(
+        F.sum(gross_base + discounts_expr).alias("gross_sales"),
+        F.sum(discounts_expr).alias("discounts"),
+        F.sum(
+            F.when(F.col("status") == "REFUNDED", F.col("total_amount")).otherwise(0)
+        ).alias("refunds"),
+        F.count("*").alias("orders"),
+    )
+    items = order_items
+    if "unit_cost" not in items.columns:
+        items = items.withColumn("unit_cost", F.lit(None).cast("decimal(12,2)"))
+    cogs = (
+        items.join(kept.select("order_id", "day", "store_id"), "order_id")
+        .groupBy("day", "store_id")
+        .agg(
+            F.sum(
+                F.when(
+                    F.col("unit_cost").isNotNull(),
+                    F.col("quantity") * F.col("unit_cost"),
+                )
+            ).alias("cogs"),
+            F.avg(F.when(F.col("unit_cost").isNotNull(), 1.0).otherwise(0.0)).alias(
+                "cost_coverage"
+            ),
+        )
+    )
+    return (
+        order_money.join(cogs, ["day", "store_id"], "left")
+        .withColumn(
+            "net_sales",
+            F.col("gross_sales") - F.coalesce(F.col("discounts"), F.lit(0)),
+        )
+        .withColumn(
+            "contribution_margin",
+            F.when(
+                F.col("cogs").isNotNull(),
+                F.col("net_sales")
+                - F.col("cogs")
+                - F.coalesce(F.col("refunds"), F.lit(0)),
+            ),
+        )
+        .withColumn(
+            "margin_pct",
+            F.when(
+                (F.col("contribution_margin").isNotNull()) & (F.col("net_sales") > 0),
+                F.round(F.col("contribution_margin") / F.col("net_sales"), 4),
+            ),
+        )
+        .select(
+            "day",
+            "store_id",
+            F.col("gross_sales").cast("decimal(18,2)").alias("gross_sales"),
+            F.col("discounts").cast("decimal(18,2)").alias("discounts"),
+            F.col("net_sales").cast("decimal(18,2)").alias("net_sales"),
+            F.col("cogs").cast("decimal(18,2)").alias("cogs"),
+            F.round("cost_coverage", 4).alias("cost_coverage"),
+            F.col("refunds").cast("decimal(18,2)").alias("refunds"),
+            F.col("contribution_margin")
+            .cast("decimal(18,2)")
+            .alias("contribution_margin"),
+            "margin_pct",
+            "orders",
+        )
+        .orderBy("day", "store_id")
+    )
+
+
+def gold_category_daily(
+    orders: DataFrame, order_items: DataFrame, products: DataFrame
+) -> DataFrame:
+    """Category sales by day (non-cancelled orders)."""
+    sold = (
+        order_items.join(
+            orders.select("order_id", "status", "placed_at").filter(
+                F.col("status") != "CANCELLED"
+            ),
+            "order_id",
+        )
+        .join(products.select("product_id", "category"), "product_id")
+        .withColumn("day", F.to_date("placed_at"))
+    )
+    return (
+        sold.groupBy("day", "category")
+        .agg(
+            F.sum("line_total").alias("sales"),
+            F.sum("quantity").alias("units"),
+            F.countDistinct("order_id").alias("orders"),
+        )
+        .select(
+            "day",
+            "category",
+            F.col("sales").cast("decimal(18,2)").alias("sales"),
+            "units",
+            "orders",
+        )
+        .orderBy("day", "category")
+    )
+
+
+def gold_wastage_daily(wastage_events: DataFrame) -> DataFrame:
+    """Daily wastage cost and units by store."""
+    empty = wastage_events.sparkSession.createDataFrame(
+        [],
+        "day: date, store_id: bigint, units: bigint, cost: decimal(18,2), events: int",
+    )
+    if not wastage_events.head(1):
+        return empty
+    day_col = "occurred_at" if "occurred_at" in wastage_events.columns else "created_at"
+    cost_col = "cost_amount" if "cost_amount" in wastage_events.columns else "amount"
+    qty_col = "quantity" if "quantity" in wastage_events.columns else "qty"
+    return (
+        wastage_events.withColumn("day", F.to_date(day_col))
+        .groupBy("day", "store_id")
+        .agg(
+            F.sum(F.coalesce(F.col(qty_col), F.lit(0))).alias("units"),
+            F.sum(F.coalesce(F.col(cost_col), F.lit(0))).alias("cost"),
+            F.count("*").alias("events"),
+        )
+        .select(
+            "day",
+            "store_id",
+            F.col("units").cast("bigint").alias("units"),
+            F.col("cost").cast("decimal(18,2)").alias("cost"),
+            F.col("events").cast("int").alias("events"),
+        )
+        .orderBy("day", "store_id")
+    )
+
+
+def gold_customer_health_daily(
+    orders: DataFrame, ratings: DataFrame | None = None
+) -> DataFrame:
+    """New vs returning customers and optional average rating by day."""
+    kept = orders.filter(F.col("status") != "CANCELLED").withColumn(
+        "day", F.to_date("placed_at")
+    )
+    first_order = orders.groupBy("customer_id").agg(
+        F.min(F.to_date("placed_at")).alias("first_day")
+    )
+    daily = (
+        kept.join(first_order, "customer_id")
+        .withColumn("is_new", F.col("day") == F.col("first_day"))
+        .groupBy("day")
+        .agg(
+            F.countDistinct("customer_id").alias("active_customers"),
+            F.countDistinct(F.when(F.col("is_new"), F.col("customer_id"))).alias(
+                "new_customers"
+            ),
+            F.count("*").alias("orders"),
+        )
+    )
+    if ratings is not None and len(ratings.take(1)) > 0:
+        rated = ratings.withColumn("day", F.to_date("created_at")).groupBy("day").agg(
+            F.avg("stars").alias("avg_rating"),
+            F.count("*").alias("ratings"),
+        )
+        daily = daily.join(rated, "day", "left")
+    else:
+        daily = daily.withColumn("avg_rating", F.lit(None).cast("double")).withColumn(
+            "ratings", F.lit(0)
+        )
+    return daily.select(
+        "day",
+        "active_customers",
+        "new_customers",
+        "orders",
+        F.round("avg_rating", 2).alias("avg_rating"),
+        "ratings",
+    ).orderBy("day")
+
+
+def gold_promo_daily(orders: DataFrame) -> DataFrame:
+    """Promotion redemptions and discount spend by day."""
+    kept = orders.filter(F.col("status") != "CANCELLED").withColumn(
+        "day", F.to_date("placed_at")
+    )
+    promo = kept.filter(F.col("promotion_id").isNotNull())
+    discount = _col_or_zero(promo, "promo_discount")
+    return (
+        promo.groupBy("day", "promotion_id")
+        .agg(
+            F.count("*").alias("orders"),
+            F.sum(discount).alias("discount_spend"),
+            F.sum("total_amount").alias("sales"),
+            F.countDistinct("customer_id").alias("customers"),
+        )
+        .select(
+            "day",
+            "promotion_id",
+            "orders",
+            F.col("discount_spend").cast("decimal(18,2)").alias("discount_spend"),
+            F.col("sales").cast("decimal(18,2)").alias("sales"),
+            "customers",
+        )
+        .orderBy("day", "promotion_id")
+    )
+
+
 MARTS = {
     "gold_store_hourly_metrics": gold_store_hourly_metrics,
     "gold_customer_360": gold_customer_360,
     "gold_inventory_health": gold_inventory_health,
     "gold_delivery_performance": gold_delivery_performance,
     "gold_product_performance": gold_product_performance,
+    "gold_store_scorecard_daily": gold_store_scorecard_daily,
+    "gold_margin_daily": gold_margin_daily,
+    "gold_category_daily": gold_category_daily,
+    "gold_wastage_daily": gold_wastage_daily,
+    "gold_customer_health_daily": gold_customer_health_daily,
+    "gold_promo_daily": gold_promo_daily,
 }
+
+# Core five promised by the status API / Phase 4; business wave marts are additive.
+CORE_MARTS = (
+    "gold_store_hourly_metrics",
+    "gold_customer_360",
+    "gold_inventory_health",
+    "gold_delivery_performance",
+    "gold_product_performance",
+)

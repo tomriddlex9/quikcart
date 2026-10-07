@@ -265,3 +265,70 @@ def test_product_performance_match_hand_computed(fixture_frames) -> None:
     assert p2["orders_with_product"] == 2
     assert abs(float(p2["revenue_share"]) - 250 / 300) < 0.001
     assert float(p2["avg_unit_price"]) == 62.5
+
+
+def test_store_scorecard_daily_rolls_hourly(fixture_frames) -> None:
+    hourly = marts.gold_store_hourly_metrics(
+        fixture_frames["orders"],
+        fixture_frames["deliveries"],
+        fixture_frames["payments"],
+        fixture_frames["riders"],
+    )
+    rows = marts.gold_store_scorecard_daily(hourly).collect()
+    by_store = {r["store_id"]: r for r in rows}
+    assert by_store[10]["orders"] == 3
+    assert float(by_store[10]["sales"]) == 300.0  # 100 + 200 (cancelled excluded from gmv)
+    assert by_store[20]["orders"] == 1
+    assert float(by_store[20]["sales"]) == 300.0
+
+
+def test_margin_and_category_daily(fixture_frames, spark_session) -> None:
+    items = fixture_frames["items"].withColumn(
+        "unit_cost", F.lit("10.00").cast("decimal(12,2)")
+    )
+    margin = {
+        (r["store_id"], str(r["day"])): r
+        for r in marts.gold_margin_daily(fixture_frames["orders"], items).collect()
+    }
+    # Store 10: orders 1+3 (non-cancelled) gmv 100+200; cogs = (2+1+3)*10 = 60
+    m10 = margin[(10, "2026-03-01")]
+    assert float(m10["gross_sales"]) == 300.0
+    assert float(m10["cogs"]) == 60.0
+    assert float(m10["contribution_margin"]) == 240.0
+
+    cats = {
+        r["category"]: r
+        for r in marts.gold_category_daily(
+            fixture_frames["orders"], fixture_frames["items"], fixture_frames["products"]
+        ).collect()
+    }
+    assert float(cats["Snacks"]["sales"]) == 50.0
+    assert float(cats["Beverages"]["sales"]) == 250.0
+
+
+def test_promo_customer_health_and_wastage(fixture_frames, spark_session) -> None:
+    promo = marts.gold_promo_daily(fixture_frames["orders"]).collect()
+    assert len(promo) == 1
+    assert promo[0]["promotion_id"] == 1
+    assert promo[0]["orders"] == 1
+
+    health = marts.gold_customer_health_daily(fixture_frames["orders"]).collect()
+    by_day = {str(r["day"]): r for r in health}
+    assert by_day["2026-03-01"]["active_customers"] == 3  # cancelled customer excluded
+    assert by_day["2026-03-01"]["new_customers"] == 3
+
+    wastage = spark_session.createDataFrame(
+        [(1, 10, 4, "12.50", "2026-03-01 09:00:00")],
+        "wastage_id: bigint, store_id: bigint, quantity: int, cost_amount: string, "
+        "occurred_at: string",
+    ).select(
+        "wastage_id",
+        "store_id",
+        "quantity",
+        F.col("cost_amount").cast("decimal(12,2)").alias("cost_amount"),
+        F.to_timestamp("occurred_at").alias("occurred_at"),
+    )
+    wrows = marts.gold_wastage_daily(wastage).collect()
+    assert len(wrows) == 1
+    assert wrows[0]["units"] == 4
+    assert float(wrows[0]["cost"]) == 12.5

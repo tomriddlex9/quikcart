@@ -14,7 +14,29 @@ from pydantic import BaseModel, ConfigDict, Field
 
 MAX_RESTOCK_QUANTITY = 500
 
-ProposalType = Literal["RESTOCK", "INCIDENT", "OPS_NOTIFICATION"]
+ProposalType = Literal[
+    "RESTOCK",
+    "INCIDENT",
+    "OPS_NOTIFICATION",
+    "PROMO_PAUSE",
+    "PROMO_LAUNCH",
+    "TARGET_CHANGE",
+    "STORE_NOTIFY",
+    "TRANSFER",
+    "PO_CREATE",
+]
+STUB_EXECUTE_TYPES = frozenset(
+    {
+        "INCIDENT",
+        "OPS_NOTIFICATION",
+        "PROMO_PAUSE",
+        "PROMO_LAUNCH",
+        "TARGET_CHANGE",
+        "STORE_NOTIFY",
+        "TRANSFER",
+        "PO_CREATE",
+    }
+)
 ProposalStatus = Literal["PENDING", "APPROVED", "REJECTED", "EXECUTED", "FAILED"]
 ValidationStatus = Literal["PENDING", "VALID", "INVALID"]
 SqlSource = Literal["postgres", "lakehouse"]
@@ -30,6 +52,15 @@ class ChatResponse(BaseModel):
     answer: str
     evidence: list[dict] = Field(default_factory=list)
     tool_trace: list[dict] = Field(default_factory=list)
+    request_id: str | None = None
+    trace_path: str | None = None
+    degraded: bool = False
+    model: str | None = None
+    handled_at: str | None = None
+    # Assistant v2 (native tool loop): verified answer cards, follow-ups, provenance.
+    cards: list[dict] = Field(default_factory=list)
+    followups: list[str] = Field(default_factory=list)
+    provenance: dict | None = None
 
 
 class ProposalCreate(BaseModel):

@@ -39,7 +39,7 @@ def build_spark(
     settings = get_settings()
     builder = (
         SparkSession.builder.appName(app_name)
-        .master("local[*]")
+        .master(os.environ.get("QUICKCART_SPARK_MASTER", "local[*]"))
         .config("spark.sql.session.timeZone", "UTC")
         # Spark 4's Python timestamp collection honours the JVM default TZ;
         # pin it so local IST/macOS hosts do not shift wall-clock fields.
@@ -86,6 +86,8 @@ def build_spark(
             .config("spark.driver.memory", "1g")
             .config("spark.executor.memory", "1g")
         )
+    elif driver_memory := os.environ.get("QUICKCART_SPARK_DRIVER_MEMORY"):
+        builder = builder.config("spark.driver.memory", driver_memory)
     spark = builder.getOrCreate()
     spark.sparkContext.setLogLevel("ERROR")
     return spark

@@ -12,7 +12,7 @@ export function countGoldTablesPresent(status: SystemStatus): { present: number;
   const entries = Object.values(status.data_root_tables ?? {});
   const total = entries.length;
   const present = entries.filter((v) => tablePresent(v).present === true).length;
-  return { present, total: total || 5 };
+  return { present, total };
 }
 
 export function formatPipelineLag(seconds: number | null | undefined): string {
@@ -21,25 +21,25 @@ export function formatPipelineLag(seconds: number | null | undefined): string {
   return `${(seconds / 60).toFixed(1)}m`;
 }
 
-/** 0–100 score from gold presence, stage health, and quarantine volume. */
+/**
+ * 0–100 score from gold presence, stage health, and quarantine volume.
+ * Returns null until the live pipeline document has arrived — no stand-in score.
+ */
 export function computeQualityScore(
   status: SystemStatus,
   pipeline: LivePipeline | null,
-  demoFallback: number,
-): number {
+): number | null {
+  if (pipeline === null) return null;
   const { present, total } = countGoldTablesPresent(status);
   const goldRatio = total > 0 ? present / total : 0;
 
-  const heartbeats = pipeline?.heartbeats ?? [];
-  let stageRatio = 0.85;
-  if (heartbeats.length > 0) {
-    const ok = heartbeats.filter((hb) => !hb.error).length;
-    stageRatio = ok / heartbeats.length;
-  } else if (pipeline === null) {
-    return demoFallback;
-  }
+  const heartbeats = pipeline.heartbeats ?? [];
+  const stageRatio =
+    heartbeats.length > 0
+      ? heartbeats.filter((hb) => !hb.error).length / heartbeats.length
+      : 0;
 
-  const quarantineRows = Object.values(pipeline?.counts.quarantine ?? {}).reduce(
+  const quarantineRows = Object.values(pipeline.counts.quarantine ?? {}).reduce(
     (sum, n) => sum + n,
     0,
   );

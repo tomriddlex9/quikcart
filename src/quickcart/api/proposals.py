@@ -19,7 +19,7 @@ import structlog
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
-from quickcart.api.models import MAX_RESTOCK_QUANTITY, ProposalCreate
+from quickcart.api.models import MAX_RESTOCK_QUANTITY, STUB_EXECUTE_TYPES, ProposalCreate
 from quickcart.db.connection import connect
 
 log = structlog.get_logger(__name__)
@@ -282,9 +282,11 @@ class ProposalService:
             proposal_id=proposal_id,
             approver=approver,
         )
-        if approved["proposal_type"] != "RESTOCK":
-            return self.get(proposal_id)
-        return self._execute_restock(approved, correlation_id)
+        if approved["proposal_type"] == "RESTOCK":
+            return self._execute_restock(approved, correlation_id)
+        if approved["proposal_type"] in STUB_EXECUTE_TYPES:
+            return self._execute_stub(approved, correlation_id)
+        return self.get(proposal_id)
 
     def reject(
         self, proposal_id: int, approver: str, reason: str | None = None
@@ -313,6 +315,39 @@ class ProposalService:
         return updated
 
     # --- executor (approve path only) ---------------------------------------------
+    def _execute_stub(
+        self, proposal: dict[str, Any], correlation_id: str
+    ) -> dict[str, Any]:
+        """Mark non-RESTOCK approved proposals EXECUTED without mutating ops state.
+
+        V017 widened proposal types ahead of full executors; this keeps the
+        approve → audit path honest until each type gets a real applicator.
+        """
+        proposal_id = proposal["proposal_id"]
+        with self._connect() as conn, conn.transaction(), conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                "UPDATE proposals SET status = 'EXECUTED', executed_at = now(),"
+                " updated_at = now() WHERE proposal_id = %s RETURNING *",
+                (proposal_id,),
+            )
+            updated = cur.fetchone()
+            self._audit(
+                cur,
+                proposal_id,
+                "APPROVED",
+                "EXECUTED",
+                proposal.get("approved_by") or "system",
+                f"stub executor for {proposal['proposal_type']}",
+                correlation_id,
+            )
+        log.info(
+            "proposal.stub_executed",
+            correlation_id=correlation_id,
+            proposal_id=proposal_id,
+            proposal_type=proposal["proposal_type"],
+        )
+        return updated
+
     def _execute_restock(
         self, proposal: dict[str, Any], correlation_id: str
     ) -> dict[str, Any]:

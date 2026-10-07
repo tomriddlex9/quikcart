@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import socket
 from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -300,13 +301,29 @@ def redpanda_end_offsets(bootstrap_servers: str | None = None) -> dict[str, int]
     except ImportError:
         return {}
 
+    bootstrap = bootstrap_servers or get_settings().redpanda_bootstrap_servers
+    host, _, port_text = bootstrap.partition(":")
+    try:
+        port = int(port_text or "9092")
+    except ValueError:
+        port = 9092
+    try:
+        with socket.create_connection((host or "127.0.0.1", port), timeout=0.4):
+            pass
+    except OSError as exc:
+        log.warning("live.redpanda_unavailable", error=str(exc))
+        return {}
+
     consumer = None
     try:
         consumer = KafkaConsumer(
-            bootstrap_servers=bootstrap_servers or get_settings().redpanda_bootstrap_servers,
+            bootstrap_servers=bootstrap,
             api_version=(0, 10, 1),
             request_timeout_ms=1_000,
             consumer_timeout_ms=1_000,
+            reconnect_backoff_ms=200,
+            reconnect_backoff_max_ms=1_000,
+            retry_backoff_ms=200,
         )
         counts: dict[str, int] = {}
         for topic in sorted(name for name in consumer.topics() if name.startswith("quickcart.")):

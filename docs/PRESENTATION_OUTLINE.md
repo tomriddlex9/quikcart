@@ -76,6 +76,7 @@ An 8-slide deck for Canva. Vercel-minimal: black/white, generous space, short li
 
 ## Slide 8 — Demo and outcomes
 
+- Live: quikcart.tomriddle.in — frontend on Vercel, API on AWS
 - Log in as a persona → onboarding → Today in minutes
 - `/b/today` p95 target < 150 ms (measured ~10 ms local)
 - Eval set: ≥90% card accuracy, 100% contract, zero scope leaks

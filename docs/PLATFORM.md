@@ -4,6 +4,8 @@ A local-first, zero-cost quick-commerce intelligence system. Operational data fl
 
 > Everything runs on a laptop. No cloud account, no paid API, and no managed data platform is required to see the whole system end to end.
 
+> **Live demo:** frontend <https://quikcart.tomriddle.in> · API <http://13.206.188.1:8000>
+
 ---
 
 ## Contents
@@ -172,6 +174,13 @@ The medallion is the analytical storage model; PostgreSQL remains the operationa
 
 **Deployment.** The default is local. An optional short-lived **AWS EC2** demo runs the backend, continuous writer/worker, Next.js, and Streamlit as systemd services with PostgreSQL / Redpanda / Qdrant in Docker (`scripts/aws_demo/`). The Next.js front end can also deploy to **Vercel** (`frontend/vercel.json`). Neither is required to run or evaluate the platform.
 
+**Live demo.** A hosted instance is available while the demo window is open:
+
+- Frontend (Vercel): <https://quikcart.tomriddle.in>
+- API (AWS, FastAPI + `/docs`): <http://13.206.188.1:8000>
+
+The hosted API is HTTP-only and the AWS instance is not free or production-hardened — it is torn down after use.
+
 The LLM choice honors the local-first rule: with `GEMINI_API_KEY` set, the assistant uses Gemini (and Live voice); without it, text falls back to local Ollama and voice is hidden.
 
 ---
@@ -268,6 +277,8 @@ Proposals v2 (`V017`) widens proposal types beyond RESTOCK. Today, non-RESTOCK t
 ---
 
 ## Run it locally
+
+> **Prefer to just look?** The live demo is at <https://quikcart.tomriddle.in> (frontend) backed by <http://13.206.188.1:8000> (API). Everything below reproduces the same stack on a laptop.
 
 Prerequisites: Git, Docker (with Compose), Python 3.12 + `uv`, Java 17.
 

@@ -2,6 +2,8 @@
 
 An 8-slide deck for Canva. Vercel-minimal: black/white, generous space, short lines, one idea per bullet.
 
+**Canva (live):** [Presentation](https://canva.link/jyi8tzy8vs17pnq) · [Platform doc](https://canva.link/b32j77v6yblhixv)
+
 ---
 
 ## Slide 1 — QuickCart Intelligence Platform

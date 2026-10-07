@@ -68,6 +68,9 @@ export async function middleware(request: NextRequest) {
   }
 
   if (pathname === "/api/streamlit-health") return NextResponse.next();
+  // Same-origin API proxy (next.config rewrite). FastAPI enforces auth; do not
+  // gate these with the console cookie or login cannot load demo personas.
+  if (pathname.startsWith("/qc-api")) return NextResponse.next();
 
   const session = await readSession(request);
   const business = businessUxEnabled() && isBusinessPersona(session?.persona);

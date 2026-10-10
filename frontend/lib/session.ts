@@ -1,4 +1,7 @@
 /** Session cookie shared by the console middleware, server actions, and the FastAPI backend. */
+
+import { BUSINESS_PERSONA_IDS, isBusinessPersonaId } from "@/lib/personas";
+
 export const SESSION_COOKIE = "qc_session";
 
 export const DEV_AUTH_SECRET = "quickcart-dev-secret-change-me";
@@ -27,16 +30,10 @@ export type SessionClaims = {
 };
 
 /** Personas that use the business experience (the rest are ops/admin). */
-export const BUSINESS_PERSONAS: ReadonlySet<string> = new Set([
-  "business_exec",
-  "city_manager",
-  "store_manager",
-  "category_manager",
-  "leadership",
-]);
+export const BUSINESS_PERSONAS: ReadonlySet<string> = BUSINESS_PERSONA_IDS;
 
 export function isBusinessPersona(persona: string | undefined | null): boolean {
-  return !!persona && BUSINESS_PERSONAS.has(persona);
+  return isBusinessPersonaId(persona);
 }
 
 export const BUSINESS_HOME = "/b/today";

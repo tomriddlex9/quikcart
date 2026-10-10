@@ -9,11 +9,58 @@ import type { CubeAnimation, CubeCell, CubeDim, CubeMeasure } from "@/lib/layer-
 // a scene/camera/renderer managed imperatively (same pattern as
 // components/floor-shader.tsx) so this stays consistent with the rest of the
 // console. Always imported with `next/dynamic(..., { ssr: false })` — WebGL
-// has no server-side implementation.
+// has no server-side implementation. Theme colours are read from CSS variables.
 
-const ACCENT = 0xc6f53a; // matches the console's lime accent, no purple
-const AMBER = 0xd6a34a;
-const GRID_COLOR = 0x2a2f26;
+function cssColorToHex(value: string, fallback: number): number {
+  const raw = value.trim();
+  if (raw.startsWith("#") && (raw.length === 7 || raw.length === 4)) {
+    if (raw.length === 4) {
+      const r = raw[1];
+      const g = raw[2];
+      const b = raw[3];
+      return Number.parseInt(`${r}${r}${g}${g}${b}${b}`, 16);
+    }
+    return Number.parseInt(raw.slice(1), 16);
+  }
+  const rgb = raw.match(/rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/i);
+  if (rgb) {
+    const r = Math.round(Number(rgb[1]));
+    const g = Math.round(Number(rgb[2]));
+    const b = Math.round(Number(rgb[3]));
+    return (r << 16) + (g << 8) + b;
+  }
+  // oklch / other — sample via canvas
+  if (typeof document !== "undefined") {
+    const canvas = document.createElement("canvas");
+    canvas.width = 1;
+    canvas.height = 1;
+    const ctx = canvas.getContext("2d");
+    if (ctx) {
+      ctx.fillStyle = "#000";
+      ctx.fillStyle = raw;
+      const parsed = ctx.fillStyle;
+      if (typeof parsed === "string" && parsed.startsWith("#")) {
+        return Number.parseInt(parsed.slice(1), 16);
+      }
+      const m = String(parsed).match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+      if (m) return (Number(m[1]) << 16) + (Number(m[2]) << 8) + Number(m[3]);
+    }
+  }
+  return fallback;
+}
+
+function themeColors() {
+  if (typeof window === "undefined") {
+    return { accent: 0x5b8def, amber: 0xd6a34a, grid: 0x2a2f26, highlight: 0xffffff };
+  }
+  const styles = getComputedStyle(document.documentElement);
+  return {
+    accent: cssColorToHex(styles.getPropertyValue("--chart-1"), 0x5b8def),
+    amber: cssColorToHex(styles.getPropertyValue("--chart-3"), 0xd6a34a),
+    grid: cssColorToHex(styles.getPropertyValue("--border"), 0x2a2f26),
+    highlight: cssColorToHex(styles.getPropertyValue("--foreground"), 0xffffff),
+  };
+}
 
 export interface DataCubeSceneProps {
   cells: CubeCell[];
@@ -26,10 +73,10 @@ export interface DataCubeSceneProps {
   onCellClick?: (cell: CubeCell) => void;
 }
 
-function colorForRatio(ratio: number): THREE.Color {
-  // 0 -> lime accent, 1 -> amber/red — a small heatmap, no purple hues.
+function colorForRatio(ratio: number, accent: number): THREE.Color {
+  // 0 -> theme accent, 1 -> amber/red — a small heatmap, no purple hues.
   const clamped = Math.min(1, Math.max(0, ratio));
-  const low = new THREE.Color(ACCENT);
+  const low = new THREE.Color(accent);
   const high = new THREE.Color(0xe0523a);
   return low.clone().lerp(high, clamped);
 }
@@ -102,14 +149,15 @@ export default function DataCubeScene({
     controls.maxDistance = 30;
     controls.maxPolarAngle = Math.PI / 2.05;
 
+    const colors = themeColors();
     const ambient = new THREE.AmbientLight(0xffffff, 0.65);
     const key = new THREE.DirectionalLight(0xffffff, 0.9);
     key.position.set(6, 10, 4);
-    const rim = new THREE.DirectionalLight(ACCENT, 0.25);
+    const rim = new THREE.DirectionalLight(colors.accent, 0.25);
     rim.position.set(-6, 4, -6);
     scene.add(ambient, key, rim);
 
-    const grid = new THREE.GridHelper(14, 14, GRID_COLOR, GRID_COLOR);
+    const grid = new THREE.GridHelper(14, 14, colors.grid, colors.grid);
     (grid.material as THREE.Material).opacity = 0.35;
     (grid.material as THREE.Material).transparent = true;
     scene.add(grid);
@@ -179,12 +227,16 @@ export default function DataCubeScene({
     };
 
     let raf = 0;
+    const reduceMotion =
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches ||
+      document.documentElement.getAttribute("data-reduced-motion") === "true";
+
     const tick = () => {
       const state = stateRef.current;
-      if (state) {
+      if (state && !document.hidden) {
         state.controls.update();
         state.frame += 1;
-        if (state.animIds.size > 0 && performance.now() < state.animEndAt) {
+        if (!reduceMotion && state.animIds.size > 0 && performance.now() < state.animEndAt) {
           const pulse = 1 + Math.sin(state.frame * 0.35) * 0.08;
           for (const id of state.animIds) {
             const mesh = state.bars.get(id);
@@ -251,13 +303,16 @@ export default function DataCubeScene({
       const height = Math.max(0.05, (rawHeight / maxValue) * 5.5);
       const rawColor = cell.values[colorMeasure] ?? 0;
       const ratio = (rawColor - colorRange.min) / (colorRange.max - colorRange.min);
-      const color = cell.highlight ? new THREE.Color(0xffffff) : colorForRatio(ratio);
+      const colors = themeColors();
+      const color = cell.highlight
+        ? new THREE.Color(colors.highlight)
+        : colorForRatio(ratio, colors.accent);
 
       const material = new THREE.MeshStandardMaterial({
         color,
         roughness: 0.45,
         metalness: 0.08,
-        emissive: cell.highlight ? new THREE.Color(ACCENT) : new THREE.Color(0x000000),
+        emissive: cell.highlight ? new THREE.Color(colors.accent) : new THREE.Color(0x000000),
         emissiveIntensity: cell.highlight ? 0.4 : 0,
       });
       const mesh = new THREE.Mesh(geometry, material);

@@ -1,7 +1,8 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-@custom-variant dark (&:is(.dark *));
+/* `.black` is a true-black Vercel-style theme; it must also receive `dark:` utilities. */
+@custom-variant dark (&:is(.dark *, .black *));
 
 /* Cool paper/ink ops console: neutral cool surfaces, steel-blue accent. */
 :root {
@@ -79,6 +80,45 @@
   --status-bad: oklch(0.7 0.18 25);
 }
 
+/* Vercel-style true black — zero hue/chroma neutrals. */
+.black {
+  color-scheme: dark;
+  --background: oklch(0 0 0);
+  --foreground: oklch(0.93 0 0);
+  --card: oklch(0.12 0 0);
+  --card-foreground: oklch(0.93 0 0);
+  --popover: oklch(0.12 0 0);
+  --popover-foreground: oklch(0.93 0 0);
+  --primary: oklch(0.93 0 0);
+  --primary-foreground: oklch(0.12 0 0);
+  --secondary: oklch(0.18 0 0);
+  --secondary-foreground: oklch(0.93 0 0);
+  --muted: oklch(0.18 0 0);
+  --muted-foreground: oklch(0.68 0 0);
+  --accent: oklch(0.18 0 0);
+  --accent-foreground: oklch(0.93 0 0);
+  --destructive: oklch(0.65 0.2 25);
+  --border: oklch(0.24 0 0);
+  --input: oklch(0.24 0 0);
+  --ring: oklch(0.68 0.1 249);
+  --chart-1: oklch(0.68 0.1 249);
+  --chart-2: oklch(0.72 0.12 160);
+  --chart-3: oklch(0.78 0.14 70);
+  --chart-4: oklch(0.68 0.16 25);
+  --chart-5: oklch(0.62 0 0);
+  --sidebar: oklch(0.08 0 0);
+  --sidebar-foreground: oklch(0.93 0 0);
+  --sidebar-primary: oklch(0.93 0 0);
+  --sidebar-primary-foreground: oklch(0.12 0 0);
+  --sidebar-accent: oklch(0.16 0 0);
+  --sidebar-accent-foreground: oklch(0.93 0 0);
+  --sidebar-border: oklch(0.22 0 0);
+  --sidebar-ring: oklch(0.68 0.1 249);
+  --status-good: oklch(0.74 0.14 160);
+  --status-watch: oklch(0.8 0.14 80);
+  --status-bad: oklch(0.7 0.18 25);
+}
+
 /* Accent overrides — steel is the default token set above. */
 [data-accent="teal"] {
   --ring: oklch(0.6 0.1 175);
@@ -88,11 +128,13 @@
   --ring: oklch(0.68 0.13 75);
   --chart-1: oklch(0.68 0.13 75);
 }
-.dark[data-accent="teal"] {
+.dark[data-accent="teal"],
+.black[data-accent="teal"] {
   --ring: oklch(0.72 0.11 175);
   --chart-1: oklch(0.72 0.11 175);
 }
-.dark[data-accent="amber"] {
+.dark[data-accent="amber"],
+.black[data-accent="amber"] {
   --ring: oklch(0.78 0.14 75);
   --chart-1: oklch(0.78 0.14 75);
 }
@@ -248,30 +290,14 @@
   animation: route-bar 0.7s ease forwards;
 }
 
-.login-axiom-shade {
-  background:
-    linear-gradient(90deg, rgba(7, 8, 7, 0.82) 0%, rgba(7, 8, 7, 0.55) 46%, rgba(7, 8, 7, 0.15) 100%);
-}
-.login-axiom-stripe {
-  background-image: repeating-linear-gradient(
-    -58deg,
-    transparent,
-    transparent 10px,
-    rgba(255, 255, 255, 0.035) 10px,
-    rgba(255, 255, 255, 0.035) 11px
-  );
-}
-.login-tick {
-  animation: login-tick 1.2s ease-in-out infinite;
-}
-@keyframes login-tick {
-  0%,
-  100% {
-    opacity: 0.35;
-  }
-  50% {
-    opacity: 1;
-  }
+/* Login preview panel: subtle token-driven grid. */
+.login-grid {
+  background-color: var(--background);
+  background-image:
+    linear-gradient(to right, color-mix(in oklch, var(--border) 70%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in oklch, var(--border) 70%, transparent) 1px, transparent 1px);
+  background-size: 28px 28px;
+  mask-image: radial-gradient(ellipse 80% 70% at 50% 40%, #000 20%, transparent 75%);
 }
 
 @keyframes route-draw {
@@ -319,7 +345,6 @@
   .route-idle,
   .route-courier,
   .route-bar,
-  .login-tick,
   .qc-blink {
     animation: none !important;
   }

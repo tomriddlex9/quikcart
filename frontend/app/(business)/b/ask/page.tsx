@@ -6,6 +6,7 @@ import { AnswerCard } from "@/components/assistant/answer-card";
 import { FollowUpChips } from "@/components/assistant/follow-up-chips";
 import { HowIGotThis } from "@/components/assistant/how-i-got-this";
 import { RareUiCredit } from "@/components/assistant/rare-ui-credit";
+import { BusinessPage } from "@/components/business/business-page";
 import { QuickQuestionChips } from "@/components/business/quick-question-chips";
 import { useMarkChecklist } from "@/components/business/getting-started-checklist";
 import { Button } from "@/components/ui/button";
@@ -145,18 +146,14 @@ function AskView() {
   }, [initial, send]);
 
   return (
-    <div className="flex min-h-[calc(100vh-10rem)] flex-col gap-4">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight">Ask center</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Ask about your stores in plain English. The assistant reads the same numbers you see here
-          and can suggest actions, but a person always approves them.
-        </p>
-      </header>
-
+    <BusinessPage
+      title="Ask center"
+      description="Ask about your stores in plain English. The assistant reads the same numbers you see here and can suggest actions, but a person always approves them."
+    >
+      <div className="flex min-h-[calc(100vh-14rem)] flex-col gap-4">
       <div className="flex-1 space-y-3" aria-live="polite">
         {messages.length === 0 ? (
-          <div className="space-y-3 rounded-xl border border-dashed border-border p-5">
+          <div className="space-y-3 rounded-lg border border-dashed border-border p-5">
             <p className="text-sm font-medium">Try one of these</p>
             <QuickQuestionChips questions={SUGGESTED} />
             {prefs.first_question ? (
@@ -164,7 +161,7 @@ function AskView() {
                 You picked this during setup:{" "}
                 <button
                   type="button"
-                  className="underline underline-offset-2"
+                  className="underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   onClick={() => void send(prefs.first_question ?? "")}
                 >
                   {prefs.first_question}
@@ -178,8 +175,8 @@ function AskView() {
               <div className={cn("flex min-w-0 flex-col gap-2", m.role === "user" ? "max-w-[85%] items-end" : "w-full max-w-[85%] items-start")}>
                 <div
                   className={cn(
-                    "whitespace-pre-wrap rounded-2xl px-4 py-2.5 text-sm leading-relaxed",
-                    m.role === "user" ? "bg-primary text-primary-foreground" : "bg-card ring-1 ring-foreground/10",
+                    "whitespace-pre-wrap rounded-lg px-4 py-2.5 text-sm leading-relaxed",
+                    m.role === "user" ? "bg-primary text-primary-foreground" : "border border-border bg-card",
                     m.failed && "text-muted-foreground",
                   )}
                 >
@@ -233,6 +230,7 @@ function AskView() {
       </form>
       <RareUiCredit className="text-center" />
     </div>
+    </BusinessPage>
   );
 }
 

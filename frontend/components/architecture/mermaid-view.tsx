@@ -1,13 +1,18 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useTheme } from "next-themes";
 import { Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { isDarkLike } from "@/lib/theme";
 import { ARCHITECTURE_MERMAID_SOURCE } from "./data";
 
 export function MermaidView() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const { resolvedTheme } = useTheme();
+  const mermaidTheme = isDarkLike(resolvedTheme) ? "dark" : "default";
 
   useEffect(() => {
     let cancelled = false;
@@ -18,11 +23,14 @@ export function MermaidView() {
         const mermaid = (await import("mermaid")).default;
         mermaid.initialize({
           startOnLoad: false,
-          theme: "dark",
+          theme: mermaidTheme,
           securityLevel: "strict",
           fontFamily: "var(--font-mono), ui-monospace, monospace",
         });
-        const { svg } = await mermaid.render("architecture-mermaid", ARCHITECTURE_MERMAID_SOURCE);
+        const { svg } = await mermaid.render(
+          `architecture-mermaid-${mermaidTheme}`,
+          ARCHITECTURE_MERMAID_SOURCE,
+        );
         if (!cancelled && containerRef.current) {
           containerRef.current.innerHTML = svg;
           setStatus("ready");
@@ -36,7 +44,7 @@ export function MermaidView() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [mermaidTheme]);
 
   return (
     <div>
@@ -50,19 +58,23 @@ export function MermaidView() {
         </Button>
       </div>
 
-      <div className="rounded-xl border border-border bg-card p-4">
+      <div className="rounded-lg border border-border bg-card p-4">
         {status === "error" ? (
           <p className="text-sm text-destructive">
             Mermaid failed to render in this browser. The interactive diagram tab has the same
             flow.
           </p>
-        ) : (
-          <div
-            ref={containerRef}
-            className="mermaid-architecture-svg overflow-x-auto [&_svg]:mx-auto [&_svg]:max-w-none"
-            aria-busy={status === "loading"}
-          />
-        )}
+        ) : null}
+        {status === "loading" ? <Skeleton className="h-64 w-full" /> : null}
+        <div
+          ref={containerRef}
+          className={
+            status === "ready"
+              ? "mermaid-architecture-svg overflow-x-auto [&_svg]:mx-auto [&_svg]:max-w-none"
+              : "hidden"
+          }
+          aria-busy={status === "loading"}
+        />
       </div>
     </div>
   );

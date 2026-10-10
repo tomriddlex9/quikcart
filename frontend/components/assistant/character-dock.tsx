@@ -5,11 +5,12 @@
 
 import Link from "next/link";
 import { Mic, Square, Volume2, VolumeX, X } from "lucide-react";
-import { useState, type KeyboardEvent, type PointerEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { RareUiCredit } from "@/components/assistant/rare-ui-credit";
 import { VoiceCharacter } from "@/components/assistant/voice-character";
 import { MatrixOrb } from "@/components/ui/matrix-orb";
 import { Button } from "@/components/ui/button";
+import { useBusiness } from "@/lib/business/business-context";
 import { useVoiceSession } from "@/lib/voice/use-voice-session";
 import { formatElapsed, isConnected, type VoicePhase } from "@/lib/voice/voice-machine";
 import { cn } from "@/lib/utils";
@@ -26,9 +27,25 @@ const STATUS_TEXT: Record<VoicePhase, string> = {
 
 export default function CharacterDock() {
   const voice = useVoiceSession();
+  const { prefs } = useBusiness();
   const [open, setOpen] = useState(false);
+  const fabRef = useRef<HTMLButtonElement>(null);
   const { state } = voice;
 
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setOpen(false);
+        fabRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  if (!prefs.voice_enabled) return null;
   if (voice.availability === "checking" || voice.availability === "unavailable") return null;
 
   const connected = isConnected(state.phase);
@@ -56,8 +73,9 @@ export default function CharacterDock() {
       {open ? (
         <section
           role="dialog"
+          aria-modal="true"
           aria-label="Voice assistant"
-          className="pointer-events-auto w-[min(20rem,calc(100vw-2rem))] space-y-3 rounded-2xl bg-card p-4 text-card-foreground shadow-lg ring-1 ring-foreground/10"
+          className="pointer-events-auto w-[min(20rem,calc(100vw-2rem))] space-y-3 rounded-lg border border-border bg-card p-4 text-card-foreground shadow-lg"
         >
           <header className="flex items-center justify-between">
             <h2 className="text-sm font-medium">Voice assistant</h2>
@@ -67,7 +85,15 @@ export default function CharacterDock() {
                   {formatElapsed(state.elapsedSeconds)} / {formatElapsed(voice.maxSeconds)}
                 </span>
               ) : null}
-              <Button variant="ghost" size="icon-xs" aria-label="Close voice panel" onClick={() => setOpen(false)}>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                aria-label="Close voice panel"
+                onClick={() => {
+                  setOpen(false);
+                  fabRef.current?.focus();
+                }}
+              >
                 <X aria-hidden />
               </Button>
             </div>
@@ -156,6 +182,7 @@ export default function CharacterDock() {
 
       {!open ? (
         <button
+          ref={fabRef}
           type="button"
           onClick={() => setOpen(true)}
           aria-label={voice.active ? "Open voice assistant (session active)" : "Open voice assistant"}

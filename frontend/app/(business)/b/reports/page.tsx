@@ -20,7 +20,7 @@ export default function ReportsPage() {
             title="No saved reports yet"
             hint={
               data.note ??
-              "Save an answer from Ask, or finish the weekly review journey, to build your first report."
+              "Save an answer from Ask, or finish a Learn tour (Start my day / Is the money healthy?), to build your first report."
             }
           />
         ) : (

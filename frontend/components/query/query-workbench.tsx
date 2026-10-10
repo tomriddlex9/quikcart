@@ -191,7 +191,7 @@ export function QueryWorkbench() {
       {alertMessage ? (
         <div
           role="alert"
-          className="sticky top-20 z-30 flex items-start gap-2 rounded-lg border border-destructive/30 bg-background px-3 py-2 text-xs text-destructive shadow-sm md:top-12"
+          className="sticky top-[calc(3rem+env(safe-area-inset-top))] z-30 flex items-start gap-2 rounded-lg border border-destructive/30 bg-background px-3 py-2 text-xs text-destructive shadow-sm md:top-12"
         >
           <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
           <div className="space-y-1">

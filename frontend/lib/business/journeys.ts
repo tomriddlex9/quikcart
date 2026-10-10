@@ -17,17 +17,21 @@ export function normalizeJourneyLink(link: string | null | undefined): string | 
   return link;
 }
 
-/** Which page section a tour step points at (matches `<Spotlight journeyId>` on that page). */
+/** Default page section a tour step points at (matches `<Spotlight journeyId>` on that page). */
 const SPOT_BY_PATH: Record<string, string> = {
-  "/b/today": "attention",
+  "/b/today": "headline",
   "/b/stores": "stores",
   "/b/products": "products",
+  "/b/delivery": "delivery",
+  "/b/money": "money",
+  "/b/actions": "actions",
+  "/b/customers": "customers",
 };
 
 /** Adds `?spot=` so the destination page can highlight the section the step talks about. */
-export function withSpotlight(link: string): string {
+export function withSpotlight(link: string, spotOverride?: string): string {
   const [path, query = ""] = link.split("?");
-  const spot = SPOT_BY_PATH[path];
+  const spot = spotOverride ?? SPOT_BY_PATH[path];
   if (!spot) return link;
   const params = new URLSearchParams(query);
   params.set("spot", spot);

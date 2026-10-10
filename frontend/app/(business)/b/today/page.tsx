@@ -60,11 +60,13 @@ export default function TodayPage() {
           <ResumeJourneyBanner />
           <MorningBriefing name={firstName(displayName)} summary={data.summary} meta={data.meta} />
 
-          <section aria-label="Key numbers" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {tiles.map((metric) => (
-              <MetricTile key={metric.key} metric={metric} href={METRIC_LINKS[metric.key]} />
-            ))}
-          </section>
+          <Spotlight journeyId="headline">
+            <section aria-label="Key numbers" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {tiles.map((metric) => (
+                <MetricTile key={metric.key} metric={metric} href={METRIC_LINKS[metric.key]} />
+              ))}
+            </section>
+          </Spotlight>
 
           <Spotlight journeyId="attention">
             <section className="space-y-2">

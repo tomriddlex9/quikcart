@@ -1,42 +1,90 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useTheme } from "next-themes";
+import {
+  Briefcase,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  Moon,
+  TerminalSquare,
+  Wrench,
+} from "lucide-react";
 import { demoSignIn, signIn, type SignInResult } from "@/app/login/actions";
-import { FloorShader } from "@/components/floor-shader";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { API_BASE } from "@/lib/api";
-import { ALL_PAGES } from "@/lib/nav";
 import { formatCompactINR, formatNumber, formatPercent } from "@/lib/format";
+import {
+  initials,
+  personaEntry,
+  PERSONA_CATALOG,
+  scopeLabel,
+  type ExperienceSide,
+  type PersonaScope,
+} from "@/lib/personas";
+import { BUSINESS_HOME } from "@/lib/session";
+import { nextTheme, THEME_ICON, type ThemeValue } from "@/lib/theme";
 import type { Kpis } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 type DemoPersona = {
   persona: string;
   label: string;
-  experience: "business" | "ops";
+  experience: ExperienceSide;
   display_name: string;
   blurb: string;
   can_approve: boolean;
+  scopes?: PersonaScope[];
 };
 
-const NAV = ["Operate", "Live", "ML", "Gold", "Agent", "Trust"];
+const LAST_PERSONA_KEY = "qc_last_demo_persona";
 const STACK = ["PostgreSQL", "Delta", "Redpanda", "FastAPI"];
 
 export function LoginScreen() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const { theme, setTheme, resolvedTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
-  const [booting, setBooting] = useState(false);
-  const [step, setStep] = useState(0);
   const [kpis, setKpis] = useState<Kpis | null>(null);
+  const [kpisState, setKpisState] = useState<"loading" | "live" | "unavailable">("loading");
   const [personas, setPersonas] = useState<DemoPersona[]>([]);
+  const [personasState, setPersonasState] = useState<"loading" | "ready" | "empty" | "error">(
+    "loading",
+  );
+  const [side, setSide] = useState<ExperienceSide | null>(null);
+  const [selectedPersona, setSelectedPersona] = useState<string | null>(null);
+  const [emailOpen, setEmailOpen] = useState(false);
+  const preselected = useRef(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
-    // Same-origin proxy (next.config rewrite) → FastAPI /api/v1/auth/demo-personas.
     fetch("/qc-api/v1/auth/demo-personas", { signal: controller.signal, cache: "no-store" })
-      .then((res) => (res.ok ? res.json() : []))
-      .then((data: DemoPersona[]) => setPersonas(Array.isArray(data) ? data : []))
-      .catch(() => undefined);
+      .then((res) => {
+        if (!res.ok) throw new Error(`status ${res.status}`);
+        return res.json();
+      })
+      .then((data: DemoPersona[]) => {
+        const list = Array.isArray(data) ? data : [];
+        setPersonas(list);
+        setPersonasState(list.length === 0 ? "empty" : "ready");
+        if (list.length === 0) setEmailOpen(true);
+      })
+      .catch(() => {
+        setPersonas([]);
+        setPersonasState("error");
+        setEmailOpen(true);
+      });
     return () => controller.abort();
   }, []);
 
@@ -45,11 +93,61 @@ export function LoginScreen() {
     fetch(`${API_BASE}/api/v1/overview/kpis`, { signal: controller.signal, cache: "no-store" })
       .then((res) => (res.ok ? res.json() : null))
       .then((data: Kpis | null) => {
-        if (data) setKpis(data);
+        if (data) {
+          setKpis(data);
+          setKpisState("live");
+        } else {
+          setKpisState("unavailable");
+        }
       })
-      .catch(() => undefined);
+      .catch(() => setKpisState("unavailable"));
     return () => controller.abort();
   }, []);
+
+  // Preselect from URL, then last-used persona, once per mount after personas load.
+  useEffect(() => {
+    if (preselected.current || personasState !== "ready" || personas.length === 0) return;
+    preselected.current = true;
+    const urlSide = searchParams.get("side");
+    const urlPersona = searchParams.get("persona");
+    let last: string | null = null;
+    try {
+      last = window.localStorage.getItem(LAST_PERSONA_KEY);
+    } catch {
+      last = null;
+    }
+    const fromUrl = personas.find((p) => p.persona === urlPersona);
+    const fromLast = personas.find((p) => p.persona === last);
+    const pick = fromUrl ?? fromLast;
+    if (pick) {
+      setSide(pick.experience);
+      setSelectedPersona(pick.persona);
+      return;
+    }
+    if (urlSide === "business" || urlSide === "ops") {
+      setSide(urlSide);
+      const first = personas.find((p) => p.experience === urlSide);
+      if (first) setSelectedPersona(first.persona);
+    }
+  }, [personas, personasState, searchParams]);
+
+  const filtered = useMemo(
+    () => (side ? personas.filter((p) => p.experience === side) : []),
+    [personas, side],
+  );
+
+  const selected = useMemo(
+    () => personas.find((p) => p.persona === selectedPersona) ?? null,
+    [personas, selectedPersona],
+  );
+
+  const catalog = selected ? personaEntry(selected.persona) : null;
+
+  useEffect(() => {
+    if (!selected) return;
+    const landing = catalog?.landing ?? (selected.experience === "business" ? BUSINESS_HOME : "/");
+    router.prefetch(landing);
+  }, [selected, catalog, router]);
 
   async function finish(result: SignInResult) {
     if (!result.ok) {
@@ -57,13 +155,16 @@ export function LoginScreen() {
       setError(result.error);
       return;
     }
-    setBooting(true);
-    for (let i = 0; i < ALL_PAGES.length; i += 1) {
-      router.prefetch(ALL_PAGES[i].href);
-      setStep(i);
-      await wait(120);
+    try {
+      if (selectedPersona) window.localStorage.setItem(LAST_PERSONA_KEY, selectedPersona);
+    } catch {
+      // private mode
     }
-    router.push("/");
+    const landing =
+      result.experience === "business"
+        ? BUSINESS_HOME
+        : (personaEntry(result.persona)?.landing ?? "/");
+    router.push(landing);
     router.refresh();
   }
 
@@ -73,187 +174,376 @@ export function LoginScreen() {
     await finish(await signIn(formData));
   }
 
-  async function onDemo(persona: string) {
+  async function onContinue() {
+    if (!selectedPersona) return;
     setError(null);
     setPending(true);
-    await finish(await demoSignIn(persona));
+    await finish(await demoSignIn(selectedPersona));
   }
 
-  const current = ALL_PAGES[step];
+  function retryPersonas() {
+    setPersonasState("loading");
+    setError(null);
+    fetch("/qc-api/v1/auth/demo-personas", { cache: "no-store" })
+      .then((res) => {
+        if (!res.ok) throw new Error(`status ${res.status}`);
+        return res.json();
+      })
+      .then((data: DemoPersona[]) => {
+        const list = Array.isArray(data) ? data : [];
+        setPersonas(list);
+        setPersonasState(list.length === 0 ? "empty" : "ready");
+        if (list.length === 0) setEmailOpen(true);
+      })
+      .catch(() => {
+        setPersonas([]);
+        setPersonasState("error");
+        setEmailOpen(true);
+      });
+  }
+
+  const ThemeIcon = mounted ? THEME_ICON[(theme as ThemeValue) ?? "system"] : Moon;
+  const businessCount = personas.filter((p) => p.experience === "business").length;
+  const opsCount = personas.filter((p) => p.experience === "ops").length;
 
   return (
-    <div className="login-axiom relative min-h-screen overflow-hidden bg-[#070807] text-white">
-      <FloorShader mode="ascii" className="pointer-events-none absolute inset-0 h-full w-full opacity-70" />
-      <div className="pointer-events-none absolute inset-0 login-axiom-shade" />
+    <div className="relative min-h-screen bg-background text-foreground">
+      <a
+        href="#sign-in"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-50 focus:rounded-md focus:bg-primary focus:px-3 focus:py-2 focus:text-primary-foreground"
+      >
+        Skip to sign in
+      </a>
 
-      <div className="relative z-10 flex min-h-screen flex-col">
-        <header className="grid grid-cols-[auto_1fr_auto] items-center gap-4 border-b border-white/15 px-4 py-3 md:px-6">
-          <p className="text-sm font-medium tracking-tight">QuickCart</p>
-          <nav className="hidden items-center justify-center gap-5 text-[11px] tracking-[0.16em] text-white/70 md:flex" aria-label="Console">
-            {NAV.map((item) => (
-              <span key={item}>/ {item}</span>
-            ))}
-          </nav>
-          <a
-            href="#sign-in"
-            className="justify-self-end border border-white/25 px-3 py-1.5 text-xs text-white/90"
-          >
-            Dashboard
-          </a>
-        </header>
+      <header className="sticky top-0 z-40 border-b border-border/80 bg-background/80 backdrop-blur-md">
+        <div className="mx-auto flex h-12 max-w-[1400px] items-center gap-3 px-4">
+          <div className="flex items-center gap-2">
+            <TerminalSquare className="size-4" strokeWidth={1.75} aria-hidden />
+            <span className="text-sm font-medium tracking-tight">QuickCart</span>
+          </div>
+          <div className="ml-auto">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="text-muted-foreground"
+              onClick={() => setTheme(nextTheme(theme))}
+              aria-label="Cycle theme"
+              title={`Theme: ${theme ?? "system"} (${resolvedTheme ?? "…"})`}
+            >
+              <ThemeIcon className="size-3.5" />
+            </Button>
+          </div>
+        </div>
+      </header>
 
-        <div className="grid flex-1 lg:grid-cols-2">
-          <section className="login-axiom-stripe flex flex-col justify-center border-white/15 px-6 py-10 md:px-12 lg:border-r">
-            <p className="w-fit border border-white/20 bg-black/40 px-2 py-1 text-[11px] text-white/70">
-              Gold marts — live orders
-            </p>
-            <h1 className="mt-8 max-w-xl text-4xl font-medium leading-[1.05] tracking-tight md:text-6xl">
-              {booting ? (
-                <>Opening the floor</>
-              ) : (
-                <>
-                  The operations
-                  <br />
-                  layer for every
-                  <br />
-                  dark store
-                </>
-              )}
-            </h1>
-            <p className="mt-6 max-w-md text-sm leading-relaxed text-white/65">
-              {booting
-                ? `${current.label}${current.hint ? ` — ${current.hint}` : ""}`
-                : "Orders, stock, and forecasts from the lakehouse. The agent can propose a restock. A person still has to approve it."}
-            </p>
+      <div className="mx-auto grid min-h-[calc(100vh-3rem)] max-w-[1400px] lg:grid-cols-2">
+        <section id="sign-in" className="flex flex-col justify-center px-4 py-10 md:px-10 lg:px-14">
+          <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">Sign in to QuickCart</h1>
+          <p className="mt-2 max-w-md text-sm text-muted-foreground">
+            Pick a side, choose a demo persona, or sign in with email. Business and Operations share
+            the same data — different jobs.
+          </p>
 
-            {booting ? (
-              <ol className="mt-8 grid max-w-md grid-cols-2 gap-x-6 gap-y-1 sm:grid-cols-3">
-                {ALL_PAGES.map((page, index) => (
-                  <li
-                    key={page.href}
-                    className={index <= step ? "text-sm text-[#C6F53A]" : "text-sm text-white/35"}
-                  >
-                    {page.label}
-                  </li>
-                ))}
-              </ol>
-            ) : (
-              <form id="sign-in" action={onSubmit} className="mt-8 max-w-md space-y-3">
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <label className="block">
-                    <span className="sr-only">Email</span>
-                    <input
-                      name="email"
-                      type="text"
-                      autoComplete="username"
-                      required
-                      autoFocus
-                      placeholder="Email"
-                      className="h-11 w-full border border-white/25 bg-black/50 px-3 text-sm outline-none placeholder:text-white/40 focus:border-[#C6F53A]"
-                    />
-                  </label>
-                  <label className="block">
-                    <span className="sr-only">Password</span>
-                    <input
-                      name="password"
-                      type="password"
-                      autoComplete="current-password"
-                      required
-                      placeholder="Password"
-                      className="h-11 w-full border border-white/25 bg-black/50 px-3 text-sm outline-none placeholder:text-white/40 focus:border-[#C6F53A]"
-                    />
-                  </label>
-                </div>
-                {error ? (
-                  <p role="alert" className="text-sm text-[#ff8b7b]">
-                    {error}
+          <div className="mt-8 space-y-6">
+            <fieldset>
+              <legend className="mb-2 text-xs font-medium text-muted-foreground">1. Choose a side</legend>
+              <div className="grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Experience side">
+                <SideCard
+                  side="business"
+                  selected={side === "business"}
+                  icon={Briefcase}
+                  title="Business"
+                  description="KPIs, stores, money, and plain-English asks."
+                  count={businessCount}
+                  onSelect={() => {
+                    setSide("business");
+                    const first = personas.find((p) => p.experience === "business");
+                    setSelectedPersona(first?.persona ?? null);
+                  }}
+                />
+                <SideCard
+                  side="ops"
+                  selected={side === "ops"}
+                  icon={Wrench}
+                  title="Operations"
+                  description="Live pipeline, proposals, SQL, and the agent."
+                  count={opsCount}
+                  onSelect={() => {
+                    setSide("ops");
+                    const first = personas.find((p) => p.experience === "ops");
+                    setSelectedPersona(first?.persona ?? null);
+                  }}
+                />
+              </div>
+            </fieldset>
+
+            {side ? (
+              <fieldset>
+                <legend className="mb-2 text-xs font-medium text-muted-foreground">
+                  2. Choose a persona
+                </legend>
+                {personasState === "loading" ? (
+                  <p className="text-sm text-muted-foreground">Loading demo personas…</p>
+                ) : personasState === "error" ? (
+                  <div role="alert" className="space-y-2 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm">
+                    <p>Couldn&apos;t reach the API for demo personas.</p>
+                    <Button type="button" size="sm" variant="outline" onClick={retryPersonas}>
+                      Retry
+                    </Button>
+                  </div>
+                ) : filtered.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No demo personas on this side. Use email below.
                   </p>
-                ) : null}
-                <button
-                  type="submit"
-                  disabled={pending}
-                  className="h-11 border border-[#C6F53A] bg-[#C6F53A] px-5 text-sm font-medium text-black disabled:opacity-60"
-                >
-                  {pending ? "Checking…" : "Enter console"}
-                </button>
-                {personas.length > 0 ? (
-                  <div className="pt-4">
-                    <p className="text-[11px] tracking-[0.14em] text-white/45">
-                      OR EXPLORE AS A DEMO PERSONA
-                    </p>
-                    <ul className="mt-3 grid gap-2 sm:grid-cols-2">
-                      {personas.map((persona) => (
+                ) : (
+                  <ul className="grid gap-2" role="radiogroup" aria-label="Demo persona">
+                    {filtered.map((persona) => {
+                      const entry = personaEntry(persona.persona);
+                      const scopes = persona.scopes ?? entry?.scopes ?? [];
+                      const selectedCard = selectedPersona === persona.persona;
+                      return (
                         <li key={persona.persona}>
                           <button
                             type="button"
+                            role="radio"
+                            aria-checked={selectedCard}
                             disabled={pending}
-                            onClick={() => onDemo(persona.persona)}
-                            title={persona.blurb}
-                            className="w-full border border-white/25 bg-black/40 px-3 py-2 text-left text-sm text-white/90 hover:border-[#C6F53A] disabled:opacity-60"
+                            onClick={() => setSelectedPersona(persona.persona)}
+                            className={cn(
+                              "flex w-full items-start gap-3 rounded-lg border bg-card px-3 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                              selectedCard
+                                ? "border-foreground ring-1 ring-foreground/30"
+                                : "border-border hover:bg-secondary/60",
+                            )}
                           >
-                            <span className="block font-medium">{persona.label}</span>
-                            <span className="block text-[11px] text-white/50">
-                              {persona.experience === "business" ? "Business" : "Operations"}
-                              {persona.can_approve ? " · can approve" : ""}
+                            <span
+                              aria-hidden
+                              className="grid size-9 shrink-0 place-items-center rounded-full bg-secondary text-xs font-medium"
+                            >
+                              {initials(persona.display_name)}
                             </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="flex flex-wrap items-center gap-2">
+                                <span className="font-medium">{persona.display_name}</span>
+                                {persona.can_approve ? (
+                                  <span className="rounded-md border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                                    Can approve
+                                  </span>
+                                ) : null}
+                              </span>
+                              <span className="mt-0.5 block text-sm text-muted-foreground">
+                                {persona.label} · {scopeLabel(scopes)}
+                              </span>
+                              <span className="mt-1 block text-xs text-muted-foreground">
+                                {persona.blurb}
+                              </span>
+                            </span>
+                            {selectedCard ? (
+                              <Check className="size-4 shrink-0 text-foreground" aria-hidden />
+                            ) : null}
                           </button>
                         </li>
-                      ))}
-                    </ul>
+                      );
+                    })}
+                  </ul>
+                )}
+              </fieldset>
+            ) : null}
+
+            {selected ? (
+              <Button
+                type="button"
+                size="lg"
+                className="h-10 w-full focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                disabled={pending}
+                onClick={() => void onContinue()}
+              >
+                {pending ? "Signing in…" : `Continue as ${selected.display_name.split("(")[0].trim()}`}
+              </Button>
+            ) : null}
+
+            {error ? (
+              <p role="alert" className="text-sm text-destructive">
+                {error}
+              </p>
+            ) : null}
+
+            <div>
+              <div className="relative my-2 flex items-center gap-3">
+                <div className="h-px flex-1 bg-border" />
+                <span className="text-[11px] uppercase tracking-wider text-muted-foreground">or</span>
+                <div className="h-px flex-1 bg-border" />
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="w-full justify-between text-muted-foreground"
+                onClick={() => setEmailOpen((v) => !v)}
+                aria-expanded={emailOpen}
+              >
+                Sign in with email
+                {emailOpen ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
+              </Button>
+              {emailOpen ? (
+                <form action={onSubmit} className="mt-3 space-y-3">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="email">Email</Label>
+                      <Input
+                        id="email"
+                        name="email"
+                        type="text"
+                        autoComplete="username"
+                        required
+                        placeholder="you@quickcart.local"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="password">Password</Label>
+                      <Input
+                        id="password"
+                        name="password"
+                        type="password"
+                        autoComplete="current-password"
+                        required
+                        placeholder="Password"
+                      />
+                    </div>
                   </div>
-                ) : null}
-              </form>
-            )}
-          </section>
-
-          <section className="relative min-h-[320px] border-t border-white/15 lg:border-t-0">
-            <FloorShader mode="dither" className="absolute inset-0 h-full w-full" />
-            <div className="absolute left-4 top-4 border border-[#C6F53A]/50 bg-black/70 px-2 py-1 text-[10px] tracking-[0.14em] text-[#C6F53A]">
-              {booting ? "LOADING PAGES" : "STORES ON THE FLOOR"}
+                  <Button type="submit" disabled={pending} className="h-9">
+                    {pending ? "Checking…" : "Enter console"}
+                  </Button>
+                </form>
+              ) : null}
             </div>
-            <div className="absolute right-4 top-4 flex gap-0.5" aria-hidden>
-              {Array.from({ length: 14 }, (_, i) => (
-                <span
-                  key={i}
-                  className="login-tick block w-[3px] bg-[#C6F53A]"
-                  style={{ height: 8 + ((i * 5) % 12), animationDelay: `${i * 80}ms` }}
-                />
+          </div>
+        </section>
+
+        <aside className="relative hidden border-l border-border lg:block">
+          <div className="login-grid absolute inset-0" aria-hidden />
+          <div className="relative sticky top-12 flex h-[calc(100vh-3rem)] flex-col justify-center gap-4 p-10">
+            <Card size="sm" className="bg-card/90 backdrop-blur">
+              <CardHeader>
+                <CardTitle>
+                  {selected
+                    ? `You'll land on ${catalog?.landingLabel ?? (selected.experience === "business" ? "Today" : "Overview")}`
+                    : "Pick a persona to preview"}
+                </CardTitle>
+                <CardDescription>
+                  {selected
+                    ? selected.blurb
+                    : "Business personas open Today. Operations personas open Overview."}
+                </CardDescription>
+              </CardHeader>
+              {catalog ? (
+                <CardContent>
+                  <ul className="space-y-1.5 text-sm text-muted-foreground">
+                    {catalog.highlights.map((item) => (
+                      <li key={item} className="flex gap-2">
+                        <Check className="mt-0.5 size-3.5 shrink-0 text-foreground" aria-hidden />
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                </CardContent>
+              ) : (
+                <CardContent>
+                  <ul className="space-y-1.5 text-sm text-muted-foreground">
+                    {PERSONA_CATALOG.filter((p) => p.side === (side ?? "business"))
+                      .slice(0, 3)
+                      .map((p) => (
+                        <li key={p.persona}>
+                          {p.label} — {p.landingLabel}
+                        </li>
+                      ))}
+                  </ul>
+                </CardContent>
+              )}
+            </Card>
+
+            <Card size="sm" className="bg-card/90 backdrop-blur">
+              <CardHeader>
+                <CardTitle className="flex items-center justify-between gap-2 text-sm">
+                  Floor numbers
+                  <span className="text-[10px] font-normal uppercase tracking-wider text-muted-foreground">
+                    {kpisState === "live" ? "Live" : kpisState === "loading" ? "Loading" : "Unavailable"}
+                  </span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <dl className="grid grid-cols-3 gap-3">
+                  <Stat label="Orders" value={kpis ? formatNumber(kpis.orders_placed) : "—"} />
+                  <Stat label="GMV" value={kpis ? formatCompactINR(kpis.gmv) : "—"} />
+                  <Stat
+                    label="Late"
+                    value={kpis ? formatPercent(kpis.late_delivery_rate) : "—"}
+                  />
+                </dl>
+              </CardContent>
+            </Card>
+
+            <ul className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+              {STACK.map((name) => (
+                <li key={name} className="rounded-md border border-border bg-card/80 px-2 py-1">
+                  {name}
+                </li>
               ))}
-            </div>
-          </section>
-        </div>
-
-        <footer className="grid border-t border-white/15 md:grid-cols-2">
-          <ul className="flex flex-wrap items-center gap-x-6 gap-y-2 border-b border-white/15 px-6 py-4 text-sm text-white/70 md:border-b-0 md:border-r">
-            {STACK.map((name) => (
-              <li key={name}>{name}</li>
-            ))}
-          </ul>
-          <dl className="grid grid-cols-3">
-            <Stat label="Orders placed" value={kpis ? formatNumber(kpis.orders_placed) : "—"} />
-            <Stat label="GMV" value={kpis ? formatCompactINR(kpis.gmv) : "—"} />
-            <Stat
-              label="Late deliveries"
-              value={kpis ? formatPercent(kpis.late_delivery_rate) : "—"}
-            />
-          </dl>
-        </footer>
+            </ul>
+          </div>
+        </aside>
       </div>
     </div>
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function SideCard({
+  side,
+  selected,
+  icon: Icon,
+  title,
+  description,
+  count,
+  onSelect,
+}: {
+  side: ExperienceSide;
+  selected: boolean;
+  icon: typeof Briefcase;
+  title: string;
+  description: string;
+  count: number;
+  onSelect: () => void;
+}) {
   return (
-    <div className="border-l border-white/15 px-4 py-4 first:border-l-0">
-      <dt className="text-[10px] tracking-[0.14em] text-white/45">{label}</dt>
-      <dd className="mt-2 text-2xl font-medium tracking-tight md:text-3xl">{value}</dd>
-    </div>
+    <button
+      type="button"
+      role="radio"
+      aria-checked={selected}
+      onClick={onSelect}
+      className={cn(
+        "flex flex-col gap-1 rounded-lg border bg-card px-3 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        selected ? "border-foreground ring-1 ring-foreground/30" : "border-border hover:bg-secondary/60",
+      )}
+      data-side={side}
+    >
+      <span className="flex items-center gap-2 text-sm font-medium">
+        <Icon className="size-3.5" strokeWidth={1.75} aria-hidden />
+        {title}
+        {count > 0 ? (
+          <span className="ml-auto text-[11px] font-normal text-muted-foreground">{count}</span>
+        ) : null}
+      </span>
+      <span className="text-xs text-muted-foreground">{description}</span>
+    </button>
   );
 }
 
-function wait(ms: number) {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, ms);
-  });
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</dt>
+      <dd className="mt-1 text-lg font-medium tracking-tight">{value}</dd>
+    </div>
+  );
 }

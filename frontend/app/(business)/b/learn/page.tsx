@@ -9,12 +9,21 @@ import { readJourneyProgress } from "@/lib/business/journeys";
 import type { JourneySummary } from "@/lib/business/types";
 import { useBusinessData } from "@/lib/business/use-business-api";
 
+const RECOMMENDED: Record<string, string> = {
+  store_manager: "A",
+  city_manager: "A",
+  ops_manager: "B",
+  category_manager: "A",
+  leadership: "C",
+  business_exec: "C",
+};
+
 export default function LearnPage() {
-  const { prefs } = useBusiness();
+  const { prefs, persona } = useBusiness();
   const journeys = useBusinessData<JourneySummary[]>("/journeys");
   const [progress, setProgress] = useState<Record<string, number>>({});
   useEffect(() => setProgress(readJourneyProgress()), []);
-
+  const recommendedId = RECOMMENDED[persona] ?? "A";
 
   return (
     <BusinessPage
@@ -33,6 +42,7 @@ export default function LearnPage() {
                   journey={j}
                   completed={prefs.completed_journeys.includes(j.id)}
                   resumeStep={progress[j.id] ?? null}
+                  recommended={j.id === recommendedId}
                 />
               ))}
             </div>

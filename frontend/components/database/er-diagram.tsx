@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useId, useMemo, useState } from "react";
+import { useTheme } from "next-themes";
 import type { ErDiagramResponse } from "@/lib/types";
 import type { LineageLayer, LineageNode } from "@/lib/live-types";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
+import { isDarkLike } from "@/lib/theme";
 
 function identifier(value: string): string {
   const cleaned = value.replace(/[^a-zA-Z0-9_]/g, "_");
@@ -48,6 +50,8 @@ export function ErDiagram({
   const renderId = useMemo(() => `quickcart-er-${reactId.replace(/[^a-zA-Z0-9]/g, "")}`, [reactId]);
   const [svg, setSvg] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const { resolvedTheme } = useTheme();
+  const mermaidTheme = isDarkLike(resolvedTheme) ? "dark" : "default";
 
   useEffect(() => {
     if (!diagram) {
@@ -67,11 +71,14 @@ export function ErDiagram({
         mermaid.initialize({
           startOnLoad: false,
           securityLevel: "strict",
-          theme: "dark",
+          theme: mermaidTheme,
           fontFamily: "var(--font-sans)",
           er: { useMaxWidth: true },
         });
-        const result = await mermaid.render(renderId, toMermaidDefinition(currentDiagram));
+        const result = await mermaid.render(
+          `${renderId}-${mermaidTheme}`,
+          toMermaidDefinition(currentDiagram),
+        );
         if (active) setSvg(result.svg);
       } catch (renderError) {
         if (active) {
@@ -84,7 +91,7 @@ export function ErDiagram({
     return () => {
       active = false;
     };
-  }, [diagram, renderId]);
+  }, [diagram, renderId, mermaidTheme]);
 
   if (loading || (layer === "raw" && diagram && !svg && !error)) {
     return <Skeleton className="h-72 w-full" />;

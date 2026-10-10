@@ -6,7 +6,7 @@ import { CloudSun, MapPin, TrafficCone } from "lucide-react";
 import { ApiBanner } from "@/components/api-banner";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { EmptyState, ErrorState } from "@/components/states";
+import { EmptyState, ErrorState, Loading } from "@/components/states";
 import type { GeoStore } from "@/lib/types";
 import { useApiData } from "@/lib/use-api";
 import { cn } from "@/lib/utils";
@@ -83,7 +83,7 @@ export function MapConsole() {
                 </li>
               ) : data === null ? (
                 <li>
-                  <EmptyState title="Loading stores…" />
+                  <Loading label="Loading stores…" />
                 </li>
               ) : stores.length === 0 ? (
                 <li>

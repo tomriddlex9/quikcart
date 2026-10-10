@@ -12,11 +12,11 @@ export function PageHeader({
   return (
     <header className="mb-6 flex flex-wrap items-end justify-between gap-3">
       <div className="max-w-[62ch]">
-        <h1 className="font-display text-[26px] font-semibold leading-tight tracking-tight text-paper">
+        <h1 className="text-[26px] font-semibold leading-tight tracking-tight text-foreground">
           {title}
         </h1>
         {description ? (
-          <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted">{description}</p>
+          <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted-foreground">{description}</p>
         ) : null}
       </div>
       {children}
@@ -26,7 +26,7 @@ export function PageHeader({
 
 export function SectionTitle({ children }: { children: ReactNode }) {
   return (
-    <h2 className="mb-3 text-[11px] font-medium tracking-wide text-faint">
+    <h2 className="mb-3 text-[11px] font-medium tracking-wide text-muted-foreground">
       {children}
     </h2>
   );

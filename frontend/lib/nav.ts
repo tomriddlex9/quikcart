@@ -1,4 +1,5 @@
 import {
+  Activity,
   Bot,
   Box,
   Brain,
@@ -6,6 +7,7 @@ import {
   FolderTree,
   Gauge,
   GitPullRequestArrow,
+  HardDrive,
   Layers,
   LayoutList,
   ListTree,
@@ -35,14 +37,14 @@ export const OPS: NavItem[] = [
   { href: "/sim", label: "Simulator", icon: Play, hint: "Start/stop · rate dials" },
   { href: "/ml", label: "ML", icon: Brain },
   { href: "/data", label: "Gold", icon: Database },
-  { href: "/database", label: "Database", icon: Database, hint: "Raw · bronze · silver · gold" },
+  { href: "/database", label: "Database", icon: HardDrive, hint: "Raw · bronze · silver · gold" },
   { href: "/layers", label: "Layers", icon: Layers, hint: "Bronze · silver · gold ops" },
   { href: "/cube", label: "Cube", icon: Box, hint: "OLAP · Three.js" },
   { href: "/query", label: "Query", icon: Search, hint: "SQL + natural language" },
   { href: "/map", label: "Map", icon: MapPin, hint: "Store geo · OSM · feeds" },
   { href: "/agent", label: "Agent", icon: Bot },
   { href: "/proposals", label: "Proposals", icon: GitPullRequestArrow },
-  { href: "/logs", label: "Status", icon: LayoutList },
+  { href: "/logs", label: "Logs", icon: Activity, hint: "Pipeline status" },
   { href: "/streamlit", label: "Streamlit", icon: MonitorCog },
 ];
 
@@ -58,3 +60,9 @@ export const LEARN: NavItem[] = [
 ];
 
 export const ALL_PAGES: NavItem[] = [...OPS, ...LEARN];
+
+/** Active match that does not light up `/data` when the path is `/database`. */
+export function isNavActive(href: string, pathname: string): boolean {
+  if (href === "/") return pathname === "/";
+  return pathname === href || pathname.startsWith(`${href}/`);
+}

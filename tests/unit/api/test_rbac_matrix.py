@@ -199,6 +199,11 @@ def test_demo_personas_and_demo_login(enforced) -> None:
     assert {p["persona"] for p in personas} == set(ROLES)
     approvers = {p["persona"] for p in personas if p["can_approve"]}
     assert approvers == {"inventory_manager", "ops_manager", "leadership"}
+    city = next(p for p in personas if p["persona"] == "city_manager")
+    assert city["scopes"] == [{"scope_type": "city", "scope_value": "Bengaluru"}]
+    assert city["experience"] == "business"
+    ops = next(p for p in personas if p["persona"] == "ops_manager")
+    assert ops["experience"] == "ops"
     assert client.post("/api/v1/auth/demo-login", json={"persona": "nope"}).status_code == 404
 
 

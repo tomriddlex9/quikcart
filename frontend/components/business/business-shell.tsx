@@ -2,14 +2,15 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bell, Database, FlaskConical, Laptop, Moon, Sun, TerminalSquare } from "lucide-react";
+import { Bell, Database, FlaskConical, Moon, TerminalSquare } from "lucide-react";
 import { useTheme } from "next-themes";
 import dynamic from "next/dynamic";
 import { useEffect, useState, type ReactNode } from "react";
 import { signOut } from "@/app/login/actions";
 import { BusinessCommand } from "@/components/business/business-command";
-import { ExperienceSwitcher } from "@/components/business/experience-switcher";
+import { OpsPreviewBanner } from "@/components/business/ops-preview-banner";
 import { ScopeChip } from "@/components/business/scope-chip";
+import { ExperienceSwitcher } from "@/components/experience-switcher";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import type { AlertsResponse } from "@/lib/business/types";
@@ -22,13 +23,11 @@ import {
   isBusinessActive,
   type BusinessNavItem,
 } from "@/lib/business-nav";
+import { nextTheme, THEME_ICON, type ThemeValue } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 
 // Voice pulls in Web Audio + canvas code; load it only in the browser, after first paint.
 const CharacterDock = dynamic(() => import("@/components/assistant/character-dock"), { ssr: false });
-
-const THEMES = ["light", "dark", "system"] as const;
-const THEME_ICON = { light: Sun, dark: Moon, system: Laptop } as const;
 
 function DataSourceButton() {
   const { source, setSource } = useDataMode();
@@ -55,11 +54,11 @@ function AlertsBell() {
     <Link
       href="/b/today#attention"
       title={count ? `${count} things need you` : "No alerts"}
-      className="relative inline-flex size-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+      className="relative inline-flex size-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <Bell className="size-3.5" aria-hidden />
       {count > 0 ? (
-        <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-status-bad px-1 text-[10px] font-medium text-white">
+        <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-status-bad px-1 text-[10px] font-medium text-primary-foreground">
           {count > 9 ? "9+" : count}
         </span>
       ) : null}
@@ -72,7 +71,7 @@ function ThemeButton() {
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
-  const current = (mounted ? theme : "dark") as (typeof THEMES)[number];
+  const current = (mounted ? theme : "black") as ThemeValue;
   const Icon = THEME_ICON[current] ?? Moon;
   return (
     <Button
@@ -81,7 +80,7 @@ function ThemeButton() {
       className="text-muted-foreground"
       aria-label="Change theme"
       title={`Theme: ${current}`}
-      onClick={() => setTheme(THEMES[(THEMES.indexOf(current) + 1) % THEMES.length])}
+      onClick={() => setTheme(nextTheme(theme))}
     >
       <Icon className="size-3.5" aria-hidden />
     </Button>
@@ -95,7 +94,7 @@ function RailLink({ item, pathname }: { item: BusinessNavItem; pathname: string 
       href={item.href}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors",
+        "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         active
           ? "bg-secondary font-medium text-foreground"
           : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
@@ -115,6 +114,12 @@ export function BusinessShell({ children }: { children: ReactNode }) {
   if (pathname === "/b/welcome") {
     return (
       <div className="min-h-screen bg-background text-foreground">
+        <a
+          href="#main"
+          className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-50 focus:rounded-md focus:bg-primary focus:px-3 focus:py-2 focus:text-primary-foreground"
+        >
+          Skip to content
+        </a>
         <main id="main" className="mx-auto w-full max-w-2xl px-4 py-10 md:py-16">
           {children}
         </main>
@@ -141,7 +146,7 @@ export function BusinessShell({ children }: { children: ReactNode }) {
               <RailLink key={item.href} item={item} pathname={pathname} />
             ))}
           </nav>
-          <ExperienceSwitcher className="mt-4 self-start" />
+          <ExperienceSwitcher current="business" className="mt-4 self-start" />
         </aside>
 
         <div className="flex min-w-0 flex-1 flex-col">
@@ -153,10 +158,11 @@ export function BusinessShell({ children }: { children: ReactNode }) {
             <ScopeChip />
             <div className="ml-auto flex items-center gap-1">
               <BusinessCommand />
-              <ExperienceSwitcher className="md:hidden" />
               <AlertsBell />
-              <DataSourceButton />
-              <ThemeButton />
+              <div className="hidden items-center gap-1 sm:flex">
+                <DataSourceButton />
+                <ThemeButton />
+              </div>
               <form action={signOut} className="hidden sm:block">
                 <Button type="submit" variant="ghost" size="sm" className="text-muted-foreground">
                   Sign out
@@ -164,7 +170,8 @@ export function BusinessShell({ children }: { children: ReactNode }) {
               </form>
             </div>
           </header>
-          <main id="main" className="min-w-0 flex-1 px-4 pb-24 pt-6 md:px-8 md:pb-12 lg:px-10">
+          <OpsPreviewBanner />
+          <main id="main" className="min-w-0 flex-1 px-4 pb-32 pt-6 md:px-8 md:pb-12 lg:px-10">
             <div className="mx-auto w-full max-w-5xl">{children}</div>
           </main>
         </div>
@@ -186,7 +193,7 @@ export function BusinessShell({ children }: { children: ReactNode }) {
             </>
           );
           const cls = cn(
-            "flex flex-col items-center gap-0.5 py-2",
+            "flex flex-col items-center gap-0.5 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             active ? "text-foreground" : "text-muted-foreground",
           );
           return isMore ? (
@@ -195,6 +202,8 @@ export function BusinessShell({ children }: { children: ReactNode }) {
               type="button"
               className={cls}
               aria-haspopup="dialog"
+              aria-expanded={moreOpen}
+              aria-controls="business-more-sheet"
               onClick={() => setMoreOpen(true)}
             >
               {content}
@@ -210,19 +219,26 @@ export function BusinessShell({ children }: { children: ReactNode }) {
       <CharacterDock />
 
       <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
-        <SheetContent side="bottom">
+        <SheetContent side="bottom" id="business-more-sheet">
           <SheetHeader>
             <SheetTitle>More</SheetTitle>
           </SheetHeader>
-          <div className="grid gap-1 px-4 pb-6" onClick={() => setMoreOpen(false)}>
-            {BUSINESS_MORE.map((item) => (
-              <RailLink key={item.href} item={item} pathname={pathname} />
-            ))}
-            <form action={signOut}>
-              <Button type="submit" variant="ghost" className="w-full justify-start text-muted-foreground">
-                Sign out
-              </Button>
-            </form>
+          <div className="grid gap-3 px-4 pb-6">
+            <ExperienceSwitcher current="business" className="self-start" />
+            <div className="flex flex-wrap gap-2">
+              <DataSourceButton />
+              <ThemeButton />
+            </div>
+            <div className="grid gap-1" onClick={() => setMoreOpen(false)}>
+              {BUSINESS_MORE.map((item) => (
+                <RailLink key={item.href} item={item} pathname={pathname} />
+              ))}
+              <form action={signOut}>
+                <Button type="submit" variant="ghost" className="w-full justify-start text-muted-foreground">
+                  Sign out
+                </Button>
+              </form>
+            </div>
           </div>
         </SheetContent>
       </Sheet>

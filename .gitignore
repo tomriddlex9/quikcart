@@ -37,3 +37,4 @@ qdrant_storage/
 scripts/aws_demo/.state.env
 scripts/aws_demo/.state.env.destroyed.*
 scripts/aws_demo/.secrets/
+.vercel

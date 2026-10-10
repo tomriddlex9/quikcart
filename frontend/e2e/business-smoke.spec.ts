@@ -43,4 +43,39 @@ test.describe("business smoke", () => {
     const login = page.getByRole("heading", { level: 1, name: /sign in/i });
     await expect(ask.or(login)).toBeVisible({ timeout: 15_000 });
   });
+
+  test("store vs leadership homes differ and provenance opens a KPI journey", async ({
+    page,
+  }) => {
+    await page.goto("/login");
+    const businessSide = page.getByRole("radio", { name: /business/i }).first();
+    if (!(await businessSide.isVisible().catch(() => false))) return;
+    await businessSide.click();
+
+    const storePersona = page.getByRole("radio", { name: /store manager|priya/i }).first();
+    if (!(await storePersona.isVisible().catch(() => false))) return;
+    await storePersona.click();
+    await page.getByRole("button", { name: /continue as/i }).click();
+    const skip = page.getByRole("button", { name: /skip for now/i });
+    if (await skip.isVisible().catch(() => false)) await skip.click();
+    await page.goto("/b/today");
+    await expect(page.getByTestId("store-home")).toBeVisible({ timeout: 20_000 });
+
+    // Switch demo persona via settings when available
+    await page.goto("/b/settings");
+    const leadership = page.getByRole("radio", { name: /leadership|meera/i }).first();
+    if (await leadership.isVisible().catch(() => false)) {
+      await leadership.click();
+      await page.goto("/b/today");
+      await expect(page.getByTestId("leadership-home")).toBeVisible({ timeout: 20_000 });
+    }
+
+    const toggle = page.getByTestId("provenance-mode-toggle");
+    if (!(await toggle.isVisible().catch(() => false))) return;
+    await toggle.click();
+    const tile = page.getByTestId("metric-tile").first();
+    await tile.click();
+    await expect(page.getByTestId("kpi-journey-inspector")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("kpi-journey-rail")).toContainText(/raw|orders|gold/i);
+  });
 });

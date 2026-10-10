@@ -21,6 +21,10 @@ import {
   isBusinessPersonaName,
 } from "@/lib/business/demo-business";
 import type { BusinessPersona, BusinessScope } from "@/lib/business/types";
+import {
+  personaViewFor,
+  type PersonaView,
+} from "@/lib/business/persona-views";
 import { isOpsPersonaId } from "@/lib/personas";
 
 export const AUTH_BASE = "/qc-api/v1/auth";
@@ -84,6 +88,8 @@ interface BusinessContextValue {
   isOpsPreview: boolean;
   prefs: BusinessPrefs;
   pinned: string[];
+  /** Layout registry entry for the active business persona. */
+  personaView: PersonaView;
   updatePrefs: (patch: Partial<BusinessPrefs>) => Promise<void>;
   setDemoPersona: (persona: BusinessPersona) => void;
 }
@@ -243,6 +249,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       : (me?.display_name ?? demoDisplayName(persona));
     const scopes =
       businessSession && me?.scopes?.length ? me.scopes : demoScopes(persona);
+    const view = personaViewFor(persona);
     return {
       ready,
       persona,
@@ -252,7 +259,9 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       sessionPersona,
       isOpsPreview,
       prefs,
-      pinned: prefs.pinned_metrics.length > 0 ? prefs.pinned_metrics : DEFAULT_PINNED,
+      pinned:
+        prefs.pinned_metrics.length > 0 ? prefs.pinned_metrics : view.pinnedDefaults,
+      personaView: view,
       updatePrefs,
       setDemoPersona,
     };
@@ -270,7 +279,8 @@ const FALLBACK: BusinessContextValue = {
   sessionPersona: null,
   isOpsPreview: false,
   prefs: DEFAULT_BUSINESS_PREFS,
-  pinned: DEFAULT_PINNED,
+  pinned: personaViewFor(DEFAULT_DEMO_PERSONA).pinnedDefaults,
+  personaView: personaViewFor(DEFAULT_DEMO_PERSONA),
   updatePrefs: async () => {},
   setDemoPersona: () => {},
 };

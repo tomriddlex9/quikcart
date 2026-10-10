@@ -136,6 +136,12 @@ _GOLD = {
         "escalation_rate",
         "mttr_seconds",
     ],
+    "gold_store_scorecard_daily": ["day", "store_id", "orders", "sales", "late_rate"],
+    "gold_margin_daily": ["day", "store_id", "gross_sales", "net_sales", "margin_pct"],
+    "gold_category_daily": ["day", "category", "sales", "units", "orders"],
+    "gold_wastage_daily": ["day", "store_id", "units", "cost", "events"],
+    "gold_customer_health_daily": ["day", "active_customers", "new_customers", "orders"],
+    "gold_promo_daily": ["day", "promotion_id", "orders", "discount_spend", "sales"],
 }
 
 _EDGES: list[tuple[str, str, str]] = [
@@ -200,6 +206,15 @@ _EDGES: list[tuple[str, str, str]] = [
     ("silver.silver_support_tickets", "gold.gold_support_escalation_metrics", "batch"),
     ("silver.silver_rider_locations", "gold.gold_delivery_predictions", "ml"),
     ("silver.silver_city_hour_context", "gold.gold_demand_forecasts", "ml"),
+    # business-wave gold marts
+    ("gold.gold_store_hourly_metrics", "gold.gold_store_scorecard_daily", "batch"),
+    ("silver.silver_orders", "gold.gold_margin_daily", "batch"),
+    ("silver.silver_order_items", "gold.gold_margin_daily", "batch"),
+    ("silver.silver_orders", "gold.gold_category_daily", "batch"),
+    ("silver.silver_order_items", "gold.gold_category_daily", "batch"),
+    ("silver.silver_products", "gold.gold_category_daily", "batch"),
+    ("silver.silver_orders", "gold.gold_customer_health_daily", "batch"),
+    ("silver.silver_orders", "gold.gold_promo_daily", "batch"),
 ]
 
 

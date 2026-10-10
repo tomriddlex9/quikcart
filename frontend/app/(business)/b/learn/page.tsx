@@ -51,7 +51,9 @@ export default function LearnPage() {
           <section className="space-y-2" aria-label="Glossary">
             <h2 className="text-sm font-medium">What the numbers mean</h2>
             <p className="text-[13px] text-muted-foreground">
-              Every number in the console, explained in plain English.
+              Every number in the console, explained in plain English. Use{" "}
+              <strong className="font-medium text-foreground">How numbers are made</strong> in the
+              header to open Raw → Gold lineage for any KPI.
             </p>
             <Link href="/b/learn/glossary" className="text-sm font-medium hover:underline">
               Open the glossary

@@ -41,6 +41,7 @@ from quickcart.api.layer_ops import (
     operation_sample,
     transforms_for_table,
 )
+from quickcart.api.metric_lineage import MetricLineageError, build_metric_lineage
 from quickcart.api.models import (
     ApproveRequest,
     CatalogLayer,
@@ -612,6 +613,14 @@ def create_app(
     @app.get("/api/v1/layers/transforms/{table}")
     def layers_transforms_for_table(table: str) -> dict[str, Any]:
         return transforms_for_table(table)
+
+    @app.get("/api/v1/metrics/{metric_key}/lineage")
+    def metric_lineage(metric_key: str) -> dict[str, Any]:
+        """Business KPI → Raw/Bronze/Silver/Gold journey with transform code."""
+        try:
+            return build_metric_lineage(metric_key)
+        except MetricLineageError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     # --- cube console (offline-capable OLAP showcase) -----------------------------
     @app.get("/api/v1/cube/state")

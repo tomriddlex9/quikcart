@@ -2,27 +2,29 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bell, Database, FlaskConical, Moon, TerminalSquare } from "lucide-react";
+import { Bell, Database, FlaskConical, Moon, MoreHorizontal, TerminalSquare } from "lucide-react";
 import { useTheme } from "next-themes";
 import dynamic from "next/dynamic";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { signOut } from "@/app/login/actions";
 import { BusinessCommand } from "@/components/business/business-command";
 import { OpsPreviewBanner } from "@/components/business/ops-preview-banner";
+import { ProvenanceModeToggle } from "@/components/business/kpi-journey/provenance-mode-toggle";
 import { ScopeChip } from "@/components/business/scope-chip";
 import { ExperienceSwitcher } from "@/components/experience-switcher";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { useBusiness } from "@/lib/business/business-context";
 import type { AlertsResponse } from "@/lib/business/types";
+import {
+  hierarchyCrumb,
+  personaMobileTabs,
+  personaMoreNav,
+  personaPrimaryNav,
+} from "@/lib/business/persona-views";
 import { useBusinessData } from "@/lib/business/use-business-api";
 import { useDataMode } from "@/lib/data-mode";
-import {
-  BUSINESS_MORE,
-  BUSINESS_NAV,
-  BUSINESS_TABS,
-  isBusinessActive,
-  type BusinessNavItem,
-} from "@/lib/business-nav";
+import { isBusinessActive, type BusinessNavItem } from "@/lib/business-nav";
 import { nextTheme, THEME_ICON, type ThemeValue } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 
@@ -109,6 +111,17 @@ function RailLink({ item, pathname }: { item: BusinessNavItem; pathname: string 
 export function BusinessShell({ children }: { children: ReactNode }) {
   const pathname = usePathname() ?? "";
   const [moreOpen, setMoreOpen] = useState(false);
+  const { persona } = useBusiness();
+  const primaryNav = useMemo(() => personaPrimaryNav(persona), [persona]);
+  const mobileTabs = useMemo(() => {
+    const tabs = personaMobileTabs(persona);
+    return [
+      ...tabs.slice(0, 4),
+      { href: "#more", label: "More", icon: MoreHorizontal } satisfies BusinessNavItem,
+    ];
+  }, [persona]);
+  const moreNav = useMemo(() => personaMoreNav(persona), [persona]);
+  const crumb = hierarchyCrumb(persona);
 
   // Onboarding gets a calm, chrome-free page.
   if (pathname === "/b/welcome") {
@@ -142,11 +155,14 @@ export function BusinessShell({ children }: { children: ReactNode }) {
             <span className="text-sm font-medium tracking-tight">QuickCart</span>
           </Link>
           <nav aria-label="Business" className="flex-1 space-y-0.5 overflow-y-auto">
-            {BUSINESS_NAV.map((item) => (
+            {primaryNav.map((item) => (
               <RailLink key={item.href} item={item} pathname={pathname} />
             ))}
           </nav>
-          <ExperienceSwitcher current="business" className="mt-4 self-start" />
+          <p className="mt-3 px-2 text-[11px] text-muted-foreground" title="How this role drills into the same data">
+            {crumb}
+          </p>
+          <ExperienceSwitcher current="business" className="mt-2 self-start" />
         </aside>
 
         <div className="flex min-w-0 flex-1 flex-col">
@@ -156,7 +172,11 @@ export function BusinessShell({ children }: { children: ReactNode }) {
               <span className="text-sm font-medium">QuickCart</span>
             </Link>
             <ScopeChip />
+            <span className="hidden text-[11px] text-muted-foreground lg:inline" aria-hidden>
+              {crumb}
+            </span>
             <div className="ml-auto flex items-center gap-1">
+              <ProvenanceModeToggle />
               <BusinessCommand />
               <AlertsBell />
               <div className="hidden items-center gap-1 sm:flex">
@@ -181,10 +201,10 @@ export function BusinessShell({ children }: { children: ReactNode }) {
         aria-label="Business tabs"
         className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-border bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
       >
-        {BUSINESS_TABS.map((tab) => {
+        {mobileTabs.map((tab) => {
           const isMore = tab.href === "#more";
           const active = isMore
-            ? BUSINESS_MORE.some((m) => isBusinessActive(pathname, m.href))
+            ? moreNav.some((m) => isBusinessActive(pathname, m.href))
             : isBusinessActive(pathname, tab.href);
           const content = (
             <>
@@ -230,7 +250,8 @@ export function BusinessShell({ children }: { children: ReactNode }) {
               <ThemeButton />
             </div>
             <div className="grid gap-1" onClick={() => setMoreOpen(false)}>
-              {BUSINESS_MORE.map((item) => (
+              <ProvenanceModeToggle />
+              {moreNav.map((item) => (
                 <RailLink key={item.href} item={item} pathname={pathname} />
               ))}
               <form action={signOut}>

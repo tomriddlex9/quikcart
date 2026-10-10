@@ -172,6 +172,7 @@ XAI_API_KEY=${XAI_API_KEY}
 XAI_MODEL=${XAI_MODEL}
 XAI_BASE_URL=${XAI_BASE_URL}
 MLFLOW_TRACKING_URI=file:///home/ubuntu/quikcart/data/mlruns
+MLFLOW_ALLOW_FILE_STORE=true
 NEXT_PUBLIC_API_BASE=http://${PUBLIC_IP}:8000
 NEXT_PUBLIC_STREAMLIT_URL=http://${PUBLIC_IP}:8501
 EOF
@@ -181,6 +182,7 @@ source .env
 # shellcheck disable=SC1091
 source .env.aws-demo
 set +a
+export MLFLOW_ALLOW_FILE_STORE=true
 
 docker compose \
   --profile core \

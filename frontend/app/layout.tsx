@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/theme-provider";
 import { PrefsProvider } from "@/lib/prefs";
+import "@bible-strong/avatar-react/styles.css";
 import "./globals.css";
 
 export const metadata: Metadata = {

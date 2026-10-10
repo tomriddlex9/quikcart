@@ -353,8 +353,17 @@ class GeminiToolLLM:
 
 
 def select_tool_llm() -> ToolCallingLLM | None:
-    """`GeminiToolLLM` when a Gemini key is configured, else ``None`` (planned pipeline)."""
+    """Native Gemini tool loop only when ``assistant_provider`` allows Gemini.
+
+    Default provider is Grok, which uses the planned LangGraph pipeline instead.
+    """
     settings = get_settings()
+    provider = str(getattr(settings, "assistant_provider", "grok") or "grok").lower()
+    if provider == "grok":
+        return None
     if not settings.gemini_api_key:
+        return None
+    if provider == "auto" and settings.xai_api_key:
+        # Prefer Grok when both keys exist under auto.
         return None
     return GeminiToolLLM(model=settings.gemini_model, api_key=settings.gemini_api_key)

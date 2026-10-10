@@ -116,6 +116,21 @@ Equivalent module commands: `uv run python -m quickcart.db.init`, `uv run python
 - `data/` — local raw/bronze/silver/gold/quarantine/checkpoints/artifacts (gitignored)
 - `tests/` — unit / integration / contracts / data_quality
 
+## Floating assistant (Grok by default)
+
+The console ships a persistent bottom-right chat dock on every business (`/b/*`) and ops screen, plus expanded Ask (`/b/ask`) and Agent (`/agent`) pages that share the same session.
+
+**Paste your key in the repo-root `.env` file** on the `XAI_API_KEY=` line (never commit it, never `NEXT_PUBLIC_*`).
+
+| Env | Purpose | How to obtain |
+|---|---|---|
+| `XAI_API_KEY` | Grok assistant (text + tools via LangGraph) | [xAI Console](https://console.x.ai/) → API keys |
+| `ASSISTANT_PROVIDER=grok` | Force Grok-only (default) | Already set in `.env.example` |
+| `XAI_MODEL` | Model id (default `grok-3-mini`) | Same console |
+| `ASSISTANT_REQUIRE_CLOUD=true` | Refuse local Ollama | Optional |
+
+Restart the API after changing keys: `uv run python -m quickcart.api`. With Grok, the Voice tab uses browser speech-to-text + TTS (not Gemini Live).
+
 ## Ground rules
 
 One phase at a time; the repository must stay runnable and green at every phase boundary. No cloud services, no paid APIs. Never silently discard invalid data. See `AGENTS.md` / `kit/AGENTS.md` for the full rule set.

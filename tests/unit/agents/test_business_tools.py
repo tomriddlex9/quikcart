@@ -576,8 +576,10 @@ def test_chat_sse_native_failure_ends_with_degraded_done(monkeypatch) -> None:
             yield  # pragma: no cover
 
     monkeypatch.setattr(service, "_native_loop", lambda: Exploding())
-    names = [n for n, _ in _parse_sse(list(service.chat_sse("x")))]
-    assert names == ["error", "done"]
+    events = _parse_sse(list(service.chat_sse("x")))
+    names = [n for n, _ in events]
+    assert names == ["status", "error", "done"]
+    assert events[0][1].get("stage") == "listening"
 
 
 def test_planned_pipeline_is_used_without_a_native_loop(monkeypatch, tmp_path) -> None:
@@ -585,9 +587,12 @@ def test_planned_pipeline_is_used_without_a_native_loop(monkeypatch, tmp_path) -
     from tests.unit.agents.fakes import FakeLLM, build_fake_registry
 
     graph = build_graph(FakeLLM(), build_fake_registry(), artifacts_dir=tmp_path)
+    monkeypatch.setattr(service, "_native_loop", lambda: None)
     monkeypatch.setattr(service, "_runtime", lambda: (graph, FakeLLM()))
-    names = [n for n, _ in _parse_sse(list(service.chat_sse("How is Store 8 performing?")))]
-    assert names[0] == "status" and names[-1] == "done" and "card" not in names
+    events = _parse_sse(list(service.chat_sse("How is Store 8 performing?")))
+    names = [n for n, _ in events]
+    assert names[0] == "status" and events[0][1]["stage"] == "listening"
+    assert names[-1] == "done" and "card" not in names
 
 
 # --------------------------------------------------------------------------- #

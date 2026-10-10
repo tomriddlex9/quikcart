@@ -7,6 +7,7 @@ const API_BASE = (
 ).replace(/\/$/, "");
 
 const nextConfig: NextConfig = {
+  transpilePackages: ["@bible-strong/avatar-react", "@bible-strong/avatar-core"],
   eslint: {
     // No ESLint config ships with this app; type checking via `tsc --noEmit` + `next build`.
     ignoreDuringBuilds: true,

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 import { Command, Moon, Settings2, TerminalSquare } from "lucide-react";
 import { useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
@@ -10,6 +11,8 @@ import { ExperienceSwitcher } from "@/components/experience-switcher";
 import { OpsTour } from "@/components/ops-tour";
 import { Pill } from "@/components/pill";
 import { Button } from "@/components/ui/button";
+
+const ChatDock = dynamic(() => import("@/components/assistant/chat-dock/chat-dock"), { ssr: false });
 import {
   CommandDialog,
   CommandEmpty,
@@ -316,9 +319,26 @@ function ShellFrame({
       </CommandDialog>
 
       <ControlDock />
+      <OpsChatDock pathname={pathname} />
       <OpsTour />
     </div>
   );
+}
+
+function OpsChatDock({ pathname }: { pathname: string }) {
+  const [persona, setPersona] = useState("ops_manager");
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/qc-api/v1/auth/me", { signal: controller.signal, cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body: { persona?: string } | null) => {
+        if (body?.persona) setPersona(body.persona);
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, []);
+  const onAgent = pathname === "/agent" || pathname.startsWith("/agent/");
+  return <ChatDock experience="ops" persona={persona} forceHideFab={onAgent} />;
 }
 
 function MobileNavRow({

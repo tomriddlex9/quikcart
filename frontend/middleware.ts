@@ -75,12 +75,22 @@ export async function middleware(request: NextRequest) {
   const session = await readSession(request);
   const business = businessUxEnabled() && isBusinessPersona(session?.persona);
 
+  // Marketing landing is public; signed-in users go to their console.
+  if (pathname === "/home") {
+    if (!session) return NextResponse.next();
+    return redirectTo(request, business ? BUSINESS_HOME : "/");
+  }
+
   if (pathname === "/login") {
     if (!session) return NextResponse.next();
     return redirectTo(request, business ? BUSINESS_HOME : "/");
   }
 
-  if (!session) return redirectTo(request, "/login");
+  if (!session) {
+    // Unauthenticated root → landing; deep links still go to sign in.
+    if (pathname === "/") return redirectTo(request, "/home");
+    return redirectTo(request, "/login");
+  }
 
   if (business) {
     // First sign-in: welcome tour before anything else.

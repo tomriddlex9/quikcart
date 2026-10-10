@@ -452,26 +452,11 @@ def generate_sql(
 
     if llm is None:
         try:
-            from quickcart.config.settings import get_settings
+            from quickcart.agents.llm import select_agent_llm
 
-            settings = get_settings()
-            if settings.gemini_api_key:
-                from quickcart.agents.llm import GeminiLLM
-
-                llm = GeminiLLM()
-            elif settings.xai_api_key:
-                from quickcart.agents.llm import GrokLLM
-
-                llm = GrokLLM()
-            else:
-                # Prefer Gemini (then Grok) when configured; keep local Ollama
-                # as the zero-cost fallback so the live demo still generates SQL.
-                from quickcart.agents.llm import OllamaLLM
-
-                llm = OllamaLLM()
-                collected.append(
-                    "GEMINI_API_KEY unset — using local Ollama instead of Gemini"
-                )
+            llm = select_agent_llm()
+            if llm.__class__.__name__ == "OllamaLLM":
+                collected.append("Cloud LLM unset — using local Ollama for NL→SQL")
         except Exception as exc:  # model not configured / package missing
             log.warning("sql.generate_llm_unavailable", error=str(exc))
             collected.append(f"model unavailable: {exc}")

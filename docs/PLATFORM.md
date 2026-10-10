@@ -352,4 +352,4 @@ Benchmarks are treated as **settings**, not hardcoded industry numbers: the simu
 
 ---
 
-*The Matrix Orb is modelled on [Rare UI Matrix Orb](https://www.rareui.com/components/matrixorb); attribution appears in Settings → About and the Ask footer. Full specification package lives in [`kit/`](../kit/README.md).*
+*Full specification package lives in [`kit/`](../kit/README.md).*

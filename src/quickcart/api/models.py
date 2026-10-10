@@ -43,9 +43,33 @@ SqlSource = Literal["postgres", "lakehouse"]
 CatalogLayer = Literal["raw", "bronze", "silver", "quarantine", "gold"]
 
 
+class ChatHistoryTurn(BaseModel):
+    role: Literal["user", "assistant"]
+    text: str = Field(min_length=1, max_length=4000)
+
+
+class ChatMemories(BaseModel):
+    """Optional context the client keeps — never a substitute for tool facts."""
+
+    local: list[str] = Field(default_factory=list, max_length=20)
+    global_: list[str] = Field(
+        default_factory=list,
+        alias="global",
+        max_length=20,
+    )
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1)
     session_id: str | None = None
+    # Selectable assistant bot (personality + business lens). See bot_personality.BOTS.
+    bot_id: str | None = None
+    # Prior turns in this chat (local conversation memory).
+    history: list[ChatHistoryTurn] = Field(default_factory=list, max_length=20)
+    # Local (session) + global (cross-chat) remembered facts from the client.
+    memories: ChatMemories | None = None
 
 
 class ChatResponse(BaseModel):

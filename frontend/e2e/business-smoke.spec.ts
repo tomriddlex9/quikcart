@@ -44,6 +44,25 @@ test.describe("business smoke", () => {
     await expect(ask.or(login)).toBeVisible({ timeout: 15_000 });
   });
 
+  test("chat dock fab opens on today when logged in", async ({ page }) => {
+    await page.goto("/login");
+    const businessSide = page.getByRole("radio", { name: /business/i }).first();
+    if (!(await businessSide.isVisible().catch(() => false))) return;
+    await businessSide.click();
+    const demo = page.getByRole("radio", { name: /executive|asha|business/i }).first();
+    if (!(await demo.isVisible().catch(() => false))) return;
+    await demo.click();
+    await page.getByRole("button", { name: /continue as/i }).click();
+    const skip = page.getByRole("button", { name: /skip for now/i });
+    if (await skip.isVisible().catch(() => false)) await skip.click();
+    await page.goto("/b/today");
+    const fab = page.getByTestId("chat-dock-fab");
+    await expect(fab).toBeVisible({ timeout: 20_000 });
+    await fab.click();
+    await expect(page.getByRole("dialog", { name: /chat assistant/i })).toBeVisible();
+    await expect(page.getByPlaceholder(/ask anything/i)).toBeVisible();
+  });
+
   test("store vs leadership homes differ and provenance opens a KPI journey", async ({
     page,
   }) => {

@@ -28,8 +28,8 @@ import { isBusinessActive, type BusinessNavItem } from "@/lib/business-nav";
 import { nextTheme, THEME_ICON, type ThemeValue } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 
-// Voice pulls in Web Audio + canvas code; load it only in the browser, after first paint.
-const CharacterDock = dynamic(() => import("@/components/assistant/character-dock"), { ssr: false });
+// Chat dock pulls in Web Audio + streaming; load it only in the browser.
+const ChatDock = dynamic(() => import("@/components/assistant/chat-dock/chat-dock"), { ssr: false });
 
 function DataSourceButton() {
   const { source, setSource } = useDataMode();
@@ -46,6 +46,20 @@ function DataSourceButton() {
       {demo ? <FlaskConical className="size-3.5" aria-hidden /> : <Database className="size-3.5" aria-hidden />}
       <span className="hidden sm:inline">{demo ? "Sample data" : "Live data"}</span>
     </Button>
+  );
+}
+
+function BusinessChatDock() {
+  const { persona, sessionPersona, prefs } = useBusiness();
+  const pathname = usePathname();
+  const onAsk = pathname === "/b/ask" || pathname.startsWith("/b/ask/");
+  return (
+    <ChatDock
+      experience="business"
+      persona={sessionPersona && sessionPersona.length > 0 ? sessionPersona : persona}
+      forceHideFab={onAsk}
+      voicePrefEnabled={prefs.voice_enabled}
+    />
   );
 }
 
@@ -236,7 +250,7 @@ export function BusinessShell({ children }: { children: ReactNode }) {
         })}
       </nav>
 
-      <CharacterDock />
+      <BusinessChatDock />
 
       <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
         <SheetContent side="bottom" id="business-more-sheet">

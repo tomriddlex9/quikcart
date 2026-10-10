@@ -6,7 +6,6 @@
 import Link from "next/link";
 import { Mic, Square, Volume2, VolumeX, X } from "lucide-react";
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
-import { RareUiCredit } from "@/components/assistant/rare-ui-credit";
 import { VoiceCharacter } from "@/components/assistant/voice-character";
 import { MatrixOrb } from "@/components/ui/matrix-orb";
 import { Button } from "@/components/ui/button";
@@ -176,7 +175,6 @@ export default function CharacterDock() {
               </p>
             </>
           )}
-          <RareUiCredit className="text-center" />
         </section>
       ) : null}
 

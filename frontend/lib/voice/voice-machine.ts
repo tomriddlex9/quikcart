@@ -47,7 +47,9 @@ export type VoiceAction =
   | { type: "tick"; elapsedSeconds: number }
   | { type: "error"; message: string }
   | { type: "closed"; notice?: string }
-  | { type: "stop" };
+  | { type: "stop" }
+  /** Return to idle/ready while the session stays open (Grok open-mic). */
+  | { type: "idle" };
 
 export const initialVoiceState: VoiceState = {
   phase: "off",
@@ -198,6 +200,16 @@ export function voiceReducer(state: VoiceState, action: VoiceAction): VoiceState
 
     case "stop":
       return { ...initialVoiceState, muted: state.muted, caption: state.caption };
+
+    case "idle":
+      if (!isConnected(state.phase) && state.phase !== "connecting") return state;
+      return {
+        ...state,
+        phase: "ready",
+        playing: false,
+        turnDone: true,
+        pendingTools: 0,
+      };
 
     default:
       return state;

@@ -57,19 +57,37 @@ def test_session_ids_are_unique() -> None:
 def test_503_when_voice_disabled_or_key_missing() -> None:
     off, minter = _client(_settings(voice_enabled=False))
     assert off.post("/api/v1/voice/session").status_code == 503
-    no_key, _ = _client(_settings(gemini_api_key=""))
+    no_key, _ = _client(_settings(gemini_api_key="", xai_api_key=""))
     response = no_key.post("/api/v1/voice/session")
-    assert response.status_code == 503 and "GEMINI_API_KEY" in response.json()["detail"]
+    assert response.status_code == 503
+    detail = response.json()["detail"].lower()
+    assert "xai" in detail or "gemini" in detail
     assert minter.requests == []
 
 
 def test_status_reports_enabled_only_with_flag_and_key() -> None:
-    def enabled(**overrides) -> bool:
-        return _client(_settings(**overrides))[0].get("/api/v1/voice/status").json()["enabled"]
+    def status(**overrides) -> dict:
+        return _client(_settings(**overrides))[0].get("/api/v1/voice/status").json()
 
-    assert enabled() is True
-    assert enabled(voice_enabled=False) is False
-    assert enabled(gemini_api_key="") is False
+    assert status()["enabled"] is True
+    assert status()["mode"] == "gemini_live"
+    assert status(voice_enabled=False)["enabled"] is False
+    assert status(gemini_api_key="", xai_api_key="")["enabled"] is False
+    grok = status(gemini_api_key="", xai_api_key="xai-test")
+    assert grok["enabled"] is True and grok["mode"] == "grok_browser" and grok["provider"] == "grok"
+
+
+def test_grok_browser_session_without_gemini_key() -> None:
+    client, minter = _client(
+        _settings(gemini_api_key="", xai_api_key="xai-test", xai_model="grok-3-mini")
+    )
+    response = client.post("/api/v1/voice/session")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["mode"] == "grok_browser"
+    assert data["token"] == "grok-browser"
+    assert data["ws_url"] == ""
+    assert minter.requests == []
 
 
 def test_permission_is_enforced_for_real_principals() -> None:

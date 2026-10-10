@@ -88,6 +88,9 @@ class AgentState(TypedDict, total=False):
     request_id: str
     session_id: str | None
     user_query: str
+    bot_id: str | None
+    conversation_history: list[dict[str, str]]
+    memories: dict[str, list[str]]
     intent: str
     intent_reasoning: str
     plan: list[dict[str, Any]]  # remaining steps: {"tool", "arguments", "purpose"}
@@ -182,14 +185,56 @@ def extract_order_id(query: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
+def _is_greeting(query: str) -> bool:
+    lowered = query.strip().lower().rstrip("!?.")
+    greetings = {
+        "hi",
+        "hello",
+        "hey",
+        "yo",
+        "howdy",
+        "good morning",
+        "good afternoon",
+        "good evening",
+        "thanks",
+        "thank you",
+        "ok",
+        "okay",
+    }
+    if lowered in greetings:
+        return True
+    return any(lowered.startswith(g + " ") for g in ("hi", "hello", "hey", "thanks", "thank you"))
+
+
 def _heuristic_intent(query: str) -> IntentClassification:
     """Keyword fallback for classification when the LLM reply is unusable."""
     lowered = query.lower()
     policy = any(k in lowered for k in ("refund", "policy", "sop", "manual",
                                         "complaint", "document"))
     prediction = any(k in lowered for k in ("forecast", "predict", "will ", "be late"))
-    analytics = any(k in lowered for k in ("store", "revenue", "gmv", "order", "deliver",
-                                           "inventor", "stock", "kpi", "cancel", "metric"))
+    analytics = any(
+        k in lowered
+        for k in (
+            "store",
+            "revenue",
+            "gmv",
+            "sales",
+            "order",
+            "deliver",
+            "inventor",
+            "stock",
+            "kpi",
+            "cancel",
+            "metric",
+            "today",
+            "week",
+            "alert",
+            "briefing",
+            "margin",
+            "wastage",
+            "promo",
+        )
+    )
     unsupported = any(k in lowered for k in ("favourite", "favorite", "colour", "ceo"))
     if unsupported and not (policy or prediction or analytics):
         intent: Literal["analytics", "policy", "prediction", "mixed", "unsupported"] = (
@@ -203,6 +248,10 @@ def _heuristic_intent(query: str) -> IntentClassification:
         intent = "prediction"
     elif analytics:
         intent = "analytics"
+    elif _is_greeting(query):
+        # Treat greetings as analytics so the answer node can reply helpfully
+        # without inventing figures (plan uses get_briefing when available).
+        intent = "analytics"
     else:
         intent = "unsupported"
     return IntentClassification(intent=intent, reasoning="heuristic fallback")
@@ -210,6 +259,8 @@ def _heuristic_intent(query: str) -> IntentClassification:
 
 def _heuristic_is_confident(query: str, classification: IntentClassification) -> bool:
     """True when keyword rules already pin a domain — skip the classify LLM."""
+    if _is_greeting(query):
+        return True
     if classification.intent in ("analytics", "policy", "prediction", "mixed"):
         return True
     lowered = query.lower()
@@ -231,14 +282,32 @@ def _heuristic_plan(query: str, intent: str) -> list[PlanStep]:
             return [PlanStep(tool="get_demand_forecast", arguments={"store_id": store_id})]
         return [PlanStep(tool="list_active_anomalies", arguments={})]
     if intent == "analytics":
+        # Prefer Postgres business tools (fast) over Gold/Spark readers.
         if store_id is not None:
-            return [PlanStep(tool="get_store_metrics", arguments={"store_id": store_id})]
-        return [PlanStep(tool="get_kpi_summary", arguments={})]
+            return [
+                PlanStep(
+                    tool="get_metric",
+                    arguments={"metric": "sales_gmv", "store_id": store_id},
+                )
+            ]
+        if _is_greeting(query) or any(k in query.lower() for k in ("alert", "attention", "help")):
+            return [PlanStep(tool="get_briefing", arguments={})]
+        if any(k in query.lower() for k in ("sales", "gmv", "revenue")):
+            return [
+                PlanStep(
+                    tool="get_metric",
+                    arguments={"metric": "sales_gmv", "include_trend": True},
+                )
+            ]
+        return [PlanStep(tool="get_briefing", arguments={})]
     if intent == "mixed":
         first = (
-            PlanStep(tool="get_store_metrics", arguments={"store_id": store_id})
+            PlanStep(
+                tool="get_metric",
+                arguments={"metric": "sales_gmv", "store_id": store_id},
+            )
             if store_id is not None
-            else PlanStep(tool="get_kpi_summary", arguments={})
+            else PlanStep(tool="get_briefing", arguments={})
         )
         return [first, PlanStep(tool="search_company_docs", arguments={"query": query})]
     return []
@@ -351,25 +420,49 @@ class AgentGraph:
         if has_unresolvable_store_reference(query):
             errors.append("store reference could not be resolved; asking for clarification")
             return {"plan": [], "needs_clarification": True, "errors": errors}
-        messages = [
-            {"role": "system", "content": PLAN_PROMPT.format(
-                intent=intent, max_steps=self._max_steps, query=query)},
-            {"role": "user", "content": f"Plan for this request: {query}"},
-        ]
-        try:
-            raw = self._llm.chat(messages, json_mode=True, max_tokens=1600)
-            draft = PlanDraft.model_validate(_extract_json(raw))
-            steps = draft.steps
-        except (LLMError, ValidationError, TypeError) as exc:
-            errors.append(f"planning fallback: {exc}")
+        # Keyword-confident analytics → business tools without another LLM round-trip.
+        pinned = IntentClassification(intent=intent, reasoning=state.get("intent_reasoning", ""))
+        if intent == "analytics" and _heuristic_is_confident(query, pinned):
             steps = _heuristic_plan(query, intent)
+        else:
+            messages = [
+                {
+                    "role": "system",
+                    "content": PLAN_PROMPT.format(
+                        intent=intent, max_steps=self._max_steps, query=query
+                    ),
+                },
+                {"role": "user", "content": f"Plan for this request: {query}"},
+            ]
+            try:
+                raw = self._llm.chat(messages, json_mode=True, max_tokens=1600)
+                draft = PlanDraft.model_validate(_extract_json(raw))
+                steps = draft.steps
+            except (LLMError, ValidationError, TypeError) as exc:
+                errors.append(f"planning fallback: {exc}")
+                steps = _heuristic_plan(query, intent)
         # Keep only steps that name a real tool; record the drops.
+        known = set(self._registry.names)
         valid: list[PlanStep] = []
         for step in steps:
-            if step.tool in set(self._registry.names):
+            if step.tool in known:
                 valid.append(step)
             else:
                 errors.append(f"planned tool {step.tool!r} is not available; step dropped")
+        # If business tools are missing (tests / stripped registry), fall back to Gold tools.
+        if not valid and intent != "unsupported":
+            for step in _heuristic_plan(query, intent):
+                if step.tool in known:
+                    valid.append(step)
+        if not valid and intent == "analytics":
+            store_id = extract_store_id(query)
+            gold = (
+                PlanStep(tool="get_store_metrics", arguments={"store_id": store_id})
+                if store_id is not None
+                else PlanStep(tool="get_kpi_summary", arguments={})
+            )
+            if gold.tool in known:
+                valid.append(gold)
         return {
             "plan": [s.model_dump() for s in valid[: self._max_steps]],
             "needs_clarification": False,
@@ -476,9 +569,15 @@ class AgentGraph:
             return {"answer": UNSUPPORTED_ANSWER}
         query = state["user_query"].strip()
         messages = [
-            {"role": "system", "content": ANSWER_PROMPT.format(
-                query=query, evidence=_evidence_for_prompt(evidence),
-                schema=ANSWER_SCHEMA_HINT)},
+            {
+                "role": "system",
+                "content": ANSWER_PROMPT.format(
+                    query=query,
+                    evidence=_evidence_for_prompt(evidence),
+                    schema=ANSWER_SCHEMA_HINT,
+                    personality=_personality_block(state),
+                ),
+            },
             {"role": "user", "content": f"Answer this request from the evidence: {query}"},
         ]
         evidence_chars = len(_evidence_for_prompt(evidence))
@@ -582,11 +681,33 @@ def build_graph(
     return graph.compile()
 
 
-def initial_state(user_query: str, session_id: str | None = None,
-                  max_steps: int = DEFAULT_MAX_STEPS) -> AgentState:
+def _personality_block(state: AgentState) -> str:
+    from quickcart.agents.bot_personality import answer_style_block, memory_context_block
+
+    style = answer_style_block(state.get("bot_id"))
+    memory = memory_context_block(
+        state.get("conversation_history"),
+        state.get("memories"),
+    )
+    if memory:
+        return f"{style}\n\n{memory}"
+    return style
+
+
+def initial_state(
+    user_query: str,
+    session_id: str | None = None,
+    max_steps: int = DEFAULT_MAX_STEPS,
+    bot_id: str | None = None,
+    history: list[dict[str, str]] | None = None,
+    memories: dict[str, list[str]] | None = None,
+) -> AgentState:
     return {
         "user_query": user_query,
         "session_id": session_id,
+        "bot_id": bot_id,
+        "conversation_history": list(history or []),
+        "memories": dict(memories or {"local": [], "global": []}),
         "intent": "unsupported",
         "plan": [],
         "selected_tools": [],

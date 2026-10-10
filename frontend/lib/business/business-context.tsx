@@ -54,7 +54,7 @@ export const DEFAULT_BUSINESS_PREFS: BusinessPrefs = {
   completed_journeys: [],
   checklist_done: [],
   checklist_dismissed: false,
-  voice_enabled: false,
+  voice_enabled: true,
 };
 
 /** The four tiles shown on Today unless the user picks their own. */

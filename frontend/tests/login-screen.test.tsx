@@ -17,6 +17,10 @@ vi.mock("next-themes", () => ({
   useTheme: () => ({ theme: "black", setTheme: vi.fn(), resolvedTheme: "black" }),
 }));
 
+vi.mock("next/image", () => ({
+  default: (props: { alt?: string }) => <img alt={props.alt ?? ""} />,
+}));
+
 vi.mock("@/app/login/actions", () => ({
   demoSignIn: (...args: unknown[]) => demoSignIn(...args),
   signIn: (...args: unknown[]) => signIn(...args),
@@ -75,11 +79,12 @@ describe("LoginScreen", () => {
     );
   });
 
-  it("filters personas by side and continues as the selected persona", async () => {
+  it("reveals personas after choosing a side and continues as the selected persona", async () => {
     demoSignIn.mockResolvedValue({ ok: true, persona: "business_exec", experience: "business" });
     render(<LoginScreen />);
 
     expect(await screen.findByRole("heading", { level: 1, name: /sign in to quickcart/i })).toBeInTheDocument();
+    expect(screen.getByText(/select business or operations to see demo personas/i)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("radio", { name: /business/i }));
     const personaGroup = await screen.findByRole("radiogroup", { name: /demo persona/i });

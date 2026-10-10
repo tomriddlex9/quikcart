@@ -230,20 +230,35 @@ async def _lifespan(app: FastAPI):
     configure_logging(get_settings().log_level)
     log.info("api.startup", service="quickcart-api", version=__version__)
     _seed_identity(app)
+    settings = get_settings()
     if os.environ.get("PYTEST_CURRENT_TEST"):
         try:
             from quickcart.agents.service import warmup_agent_runtime
 
-            warmup_agent_runtime()
+            warmup_agent_runtime(heavy=False)
         except Exception as exc:
             log.warning("api.agent_warmup_skipped", error=str(exc))
     else:
+        def _light_agent_warm() -> None:
+            try:
+                from quickcart.agents.service import warmup_agent_runtime
+
+                warmup_agent_runtime(heavy=False)
+            except Exception as exc:
+                log.warning("api.agent_warmup_skipped", error=str(exc))
+
         threading.Thread(
-            target=_run_startup_warmup,
-            args=(app,),
-            name="qc-api-warmup",
-            daemon=True,
+            target=_light_agent_warm, name="qc-agent-warmup", daemon=True
         ).start()
+        if settings.gold_warmup_enabled:
+            threading.Thread(
+                target=_run_startup_warmup,
+                args=(app,),
+                name="qc-api-warmup",
+                daemon=True,
+            ).start()
+        else:
+            log.info("api.gold_warmup_disabled", hint="set GOLD_WARMUP_ENABLED=true to enable")
     yield
     spark = app.state.spark
     if app.state.spark_owned and spark is not None:
@@ -635,6 +650,23 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     # --- agent (Phase 13 owns the service) -----------------------------------------
+    @app.get("/api/v1/agent/ready")
+    def agent_ready() -> dict[str, Any]:
+        """Warmup ping for the floating chat dock (no auth — no user data)."""
+        try:
+            from quickcart.agents.service import agent_ready as _ready
+
+            return _ready()
+        except Exception as exc:
+            log.warning("api.agent_ready_failed", error=str(exc))
+            return {
+                "ready": False,
+                "mode": "unavailable",
+                "model": None,
+                "voice_enabled": False,
+                "require_cloud": False,
+            }
+
     @app.post("/api/v1/agent/chat", response_model=ChatResponse)
     def agent_chat(
         body: ChatRequest,
@@ -643,8 +675,19 @@ def create_app(
         service = _get_agent_service()
         if service is None:
             raise HTTPException(status_code=503, detail="agent not available")
+        memories = None
+        if body.memories is not None:
+            memories = {
+                "local": list(body.memories.local),
+                "global": list(body.memories.global_),
+            }
         result = service.chat(
-            message=body.message, session_id=body.session_id, principal=principal
+            message=body.message,
+            session_id=body.session_id,
+            principal=principal,
+            bot_id=body.bot_id,
+            history=[{"role": t.role, "text": t.text} for t in body.history],
+            memories=memories,
         )
         return ChatResponse(**result)
 
@@ -656,9 +699,20 @@ def create_app(
         service = _get_agent_service()
         if service is None or not hasattr(service, "chat_sse"):
             raise HTTPException(status_code=503, detail="agent not available")
+        memories = None
+        if body.memories is not None:
+            memories = {
+                "local": list(body.memories.local),
+                "global": list(body.memories.global_),
+            }
         return StreamingResponse(
             service.chat_sse(
-                message=body.message, session_id=body.session_id, principal=principal
+                message=body.message,
+                session_id=body.session_id,
+                principal=principal,
+                bot_id=body.bot_id,
+                history=[{"role": t.role, "text": t.text} for t in body.history],
+                memories=memories,
             ),
             media_type="text/event-stream",
             headers={

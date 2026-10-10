@@ -9,11 +9,20 @@ import {
 import type { AgentEvidence, AgentToolTrace, ChatResponse } from "@/lib/types";
 
 export type AgentStreamStage =
+  | "listening"
   | "classifying"
   | "planning"
   | "tools"
   | "action"
   | "answer";
+
+export interface ThinkingStep {
+  id: string;
+  stage: AgentStreamStage | "tool";
+  label: string;
+  detail?: string;
+  at: number;
+}
 
 /** `done` payload: the classic chat response plus the hydrated answer envelope. */
 export interface AgentDonePayload extends ChatResponse {
@@ -23,7 +32,11 @@ export interface AgentDonePayload extends ChatResponse {
 }
 
 export interface AgentStreamHandlers {
-  onStatus?: (stage: AgentStreamStage, model?: string | null) => void;
+  onStatus?: (
+    stage: AgentStreamStage,
+    model?: string | null,
+    meta?: { detail?: string; reasoning?: string; bot_id?: string },
+  ) => void;
   onTool?: (tool: {
     name: string;
     ok: boolean;
@@ -60,6 +73,11 @@ export async function streamAgentChat(
   sessionId: string,
   handlers: AgentStreamHandlers,
   signal?: AbortSignal,
+  opts?: {
+    botId?: string | null;
+    history?: { role: "user" | "assistant"; text: string }[];
+    memories?: { local: string[]; global: string[] };
+  },
 ): Promise<void> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), STREAM_TIMEOUT_MS);
@@ -70,7 +88,13 @@ export async function streamAgentChat(
     const res = await fetch(`${API_BASE}/api/v1/agent/chat/stream`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
-      body: JSON.stringify({ message, session_id: sessionId }),
+      body: JSON.stringify({
+        message,
+        session_id: sessionId,
+        bot_id: opts?.botId ?? undefined,
+        history: opts?.history ?? [],
+        memories: opts?.memories ?? undefined,
+      }),
       cache: "no-store",
       signal: controller.signal,
     });
@@ -101,7 +125,11 @@ export async function streamAgentChat(
         const { event, data } = parsed;
         if (event === "status") {
           const stage = data.stage as AgentStreamStage;
-          handlers.onStatus?.(stage, typeof data.model === "string" ? data.model : null);
+          handlers.onStatus?.(stage, typeof data.model === "string" ? data.model : null, {
+            detail: typeof data.detail === "string" ? data.detail : undefined,
+            reasoning: typeof data.reasoning === "string" ? data.reasoning : undefined,
+            bot_id: typeof data.bot_id === "string" ? data.bot_id : undefined,
+          });
         } else if (event === "tool") {
           handlers.onTool?.({
             name: String(data.name ?? "tool"),

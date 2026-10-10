@@ -26,5 +26,10 @@ test.describe("ops smoke", () => {
 
     await page.goto("/proposals");
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible({ timeout: 15_000 });
+
+    const fab = page.getByTestId("chat-dock-fab");
+    await expect(fab).toBeVisible({ timeout: 15_000 });
+    await fab.click();
+    await expect(page.getByRole("dialog", { name: /chat assistant/i })).toBeVisible();
   });
 });

@@ -4,7 +4,6 @@ import { useBusiness, DEFAULT_PINNED } from "@/lib/business/business-context";
 import { BusinessPage } from "@/components/business/business-page";
 import { useMarkChecklist } from "@/components/business/getting-started-checklist";
 import { scopeLabel } from "@/components/business/scope-chip";
-import { RareUiCredit } from "@/components/assistant/rare-ui-credit";
 import { Button } from "@/components/ui/button";
 import { DEMO_PERSONAS } from "@/lib/business/demo-business";
 import type { BusinessPersona, MetricsCatalogResponse } from "@/lib/business/types";
@@ -92,9 +91,11 @@ export default function SettingsPage() {
         <section className="space-y-2 rounded-xl bg-card p-4 ring-1 ring-foreground/10">
           <h2 className="text-sm font-medium">Voice assistant</h2>
           <p className="text-[13px] text-muted-foreground">
-            Talking to the assistant needs a Gemini API key on the server and{" "}
-            <code className="text-xs">VOICE_ENABLED=true</code>. Your preference only
-            controls whether the floating character is shown in this browser.
+            Voice uses Grok in the browser (speech recognition + answers aloud) when{" "}
+            <code className="text-xs">XAI_API_KEY</code> is set, or Gemini Live when{" "}
+            <code className="text-xs">GEMINI_API_KEY</code> is set. Server needs{" "}
+            <code className="text-xs">VOICE_ENABLED=true</code>. This toggle controls whether
+            voice is available in this browser.
           </p>
           <label className="flex cursor-pointer items-center gap-2 text-[13px]">
             <input
@@ -104,7 +105,7 @@ export default function SettingsPage() {
                 void updatePrefs({ voice_enabled: e.target.checked });
               }}
             />
-            Show the voice character in the corner
+            Enable voice mode in chat
           </label>
         </section>
 
@@ -119,14 +120,6 @@ export default function SettingsPage() {
           </Button>
         </section>
 
-        <section className="space-y-1 rounded-xl border border-dashed border-border p-4">
-          <h2 className="text-sm font-medium">About</h2>
-          <p className="text-[13px] text-muted-foreground">
-            Interface inspiration from Rare UI. The voice assistant&apos;s dot-matrix orb is an original
-            component modelled on Rare UI&apos;s Matrix Orb.
-          </p>
-          <RareUiCredit />
-        </section>
       </div>
     </BusinessPage>
   );

@@ -12,7 +12,7 @@ Permission: ``copilot:voice`` (see ``quickcart.identity.catalog``). The endpoint
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 
 import structlog
@@ -41,6 +41,9 @@ router = APIRouter(prefix="/api/v1/voice", tags=["voice"])
 class VoiceStatus(BaseModel):
     enabled: bool
     max_session_seconds: int
+    # gemini_live = WebSocket Live; grok_browser = client STT → agent → TTS; off = unavailable
+    mode: str = "off"
+    provider: str = "none"
 
 
 class VoiceSessionResponse(BaseModel):
@@ -50,6 +53,7 @@ class VoiceSessionResponse(BaseModel):
     ws_url: str
     voice_session_id: str
     max_session_seconds: int
+    mode: str = "gemini_live"
 
 
 def get_voice_settings(request: Request) -> Settings:
@@ -66,8 +70,19 @@ def get_token_minter(request: Request, settings: Settings) -> TokenMinter:
     return GeminiTokenMinter(settings.gemini_api_key)
 
 
+def _voice_mode(settings: Settings) -> str:
+    """Prefer Gemini Live when keyed; otherwise Grok browser STT/TTS."""
+    if not settings.voice_enabled:
+        return "off"
+    if settings.gemini_api_key.strip():
+        return "gemini_live"
+    if settings.xai_api_key.strip():
+        return "grok_browser"
+    return "off"
+
+
 def _voice_available(settings: Settings) -> bool:
-    return bool(settings.voice_enabled and settings.gemini_api_key.strip())
+    return _voice_mode(settings) != "off"
 
 
 principal_dependency = require_permission(VOICE_PERMISSION)  # tests override this callable
@@ -79,8 +94,15 @@ RegistryDep = Annotated[ToolRegistry, Depends(get_assistant_registry)]
 @router.get("/status")
 def voice_status(_principal: PrincipalDep, settings: SettingsDep) -> VoiceStatus:
     """Lets the console hide the voice dock (403 = no permission, ``enabled`` false = off)."""
+    mode = _voice_mode(settings)
     return VoiceStatus(
-        enabled=_voice_available(settings), max_session_seconds=settings.voice_max_session_seconds
+        enabled=mode != "off",
+        max_session_seconds=settings.voice_max_session_seconds,
+        mode=mode,
+        provider=(
+            "gemini" if mode == "gemini_live"
+            else ("grok" if mode == "grok_browser" else "none")
+        ),
     )
 
 
@@ -93,9 +115,32 @@ def create_voice_session(
 ) -> VoiceSessionResponse:
     if not settings.voice_enabled:
         raise HTTPException(status_code=503, detail="voice is not enabled")
-    if not settings.gemini_api_key.strip():
+    mode = _voice_mode(settings)
+    if mode == "grok_browser":
+        # Browser STT/TTS path — no Live token. Client uses /agent/chat/stream.
+        voice_session_id = uuid.uuid4().hex
+        log.info(
+            "voice.session_grok_browser",
+            voice_session_id=voice_session_id,
+            user_id=principal.user_id,
+            persona=principal.persona,
+        )
+        return VoiceSessionResponse(
+            token="grok-browser",
+            model=settings.xai_model or "grok-3-mini",
+            expires_at=datetime.now(UTC) + timedelta(seconds=settings.voice_max_session_seconds),
+            ws_url="",
+            voice_session_id=voice_session_id,
+            max_session_seconds=settings.voice_max_session_seconds,
+            mode="grok_browser",
+        )
+    if mode != "gemini_live" or not settings.gemini_api_key.strip():
         raise HTTPException(
-            status_code=503, detail="voice is unavailable: GEMINI_API_KEY is not set"
+            status_code=503,
+            detail=(
+                "voice is unavailable: set GEMINI_API_KEY (Live) "
+                "or XAI_API_KEY (Grok browser voice)"
+            ),
         )
 
     minter = get_token_minter(request, settings)
@@ -128,6 +173,7 @@ def create_voice_session(
         ws_url=minted.ws_url,
         voice_session_id=voice_session_id,
         max_session_seconds=settings.voice_max_session_seconds,
+        mode="gemini_live",
     )
 
 

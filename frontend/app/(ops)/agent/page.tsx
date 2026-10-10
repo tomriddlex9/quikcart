@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
-import { AgentConsole } from "@/components/agent-console";
+import { OpsAgentView } from "@/components/assistant/ops-agent-view";
 
 export const metadata: Metadata = {
   title: "Agent console",
 };
 
 export default function AgentPage() {
-  return <AgentConsole />;
+  return <OpsAgentView />;
 }

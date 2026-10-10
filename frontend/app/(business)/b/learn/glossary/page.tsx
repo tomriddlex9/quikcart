@@ -35,6 +35,15 @@ export default function GlossaryPage() {
     >
       {() => (
         <div className="space-y-3">
+          <aside
+            className="rounded-lg border border-border bg-secondary/40 px-3 py-2 text-sm text-muted-foreground"
+            data-testid="glossary-provenance-note"
+          >
+            Want the engineering path for a KPI? Turn on{" "}
+            <strong className="font-medium text-foreground">How numbers are made</strong> in the
+            header, then click any tile — you will see Raw → Bronze → Silver → Gold with the
+            transform code that produced the number.
+          </aside>
           <label className="sr-only" htmlFor="glossary-filter">
             Search the glossary
           </label>

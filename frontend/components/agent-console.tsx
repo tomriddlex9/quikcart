@@ -43,6 +43,7 @@ interface ChatMessage {
 
 const STORAGE_KEY = "qc_agent_chat:v1";
 const STAGE_LABEL: Record<AgentStreamStage, string> = {
+  listening: "Listening",
   classifying: "Classifying",
   planning: "Planning",
   tools: "Tools",

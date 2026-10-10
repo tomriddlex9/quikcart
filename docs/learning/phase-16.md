@@ -61,4 +61,4 @@ cd frontend && npm run test:e2e:install && npm run test:e2e   # needs API :8000 
 
 ## Rare UI credit
 
-The Matrix Orb is modelled on [Rare UI Matrix Orb](https://www.rareui.com/components/matrixorb). Attribution is shown in Settings → About and the Ask page footer.
+The Matrix Orb is the voice assistant presence (idle / listening / thinking / speaking).

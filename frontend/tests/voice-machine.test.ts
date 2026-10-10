@@ -33,6 +33,14 @@ describe("voiceReducer lifecycle", () => {
     expect(run([{ type: "mic_up" }], ready()).phase).toBe("ready");
   });
 
+  it("idle returns to ready while keeping the session open", () => {
+    const listening = run([{ type: "mic_down" }], ready());
+    expect(voiceReducer(listening, { type: "idle" })).toMatchObject({
+      phase: "ready",
+      sessionId: "s1",
+    });
+  });
+
   it("speaks, then returns to ready only after the player drains and the turn is done", () => {
     const speaking = run([{ type: "mic_down" }, { type: "mic_up" }, { type: "audio" }], ready());
     expect(speaking).toMatchObject({ phase: "speaking", playing: true });

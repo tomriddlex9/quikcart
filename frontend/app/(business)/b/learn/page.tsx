@@ -9,12 +9,21 @@ import { readJourneyProgress } from "@/lib/business/journeys";
 import type { JourneySummary } from "@/lib/business/types";
 import { useBusinessData } from "@/lib/business/use-business-api";
 
+const RECOMMENDED: Record<string, string> = {
+  store_manager: "A",
+  city_manager: "A",
+  ops_manager: "B",
+  category_manager: "A",
+  leadership: "C",
+  business_exec: "C",
+};
+
 export default function LearnPage() {
-  const { prefs } = useBusiness();
+  const { prefs, persona } = useBusiness();
   const journeys = useBusinessData<JourneySummary[]>("/journeys");
   const [progress, setProgress] = useState<Record<string, number>>({});
   useEffect(() => setProgress(readJourneyProgress()), []);
-
+  const recommendedId = RECOMMENDED[persona] ?? "A";
 
   return (
     <BusinessPage
@@ -33,6 +42,7 @@ export default function LearnPage() {
                   journey={j}
                   completed={prefs.completed_journeys.includes(j.id)}
                   resumeStep={progress[j.id] ?? null}
+                  recommended={j.id === recommendedId}
                 />
               ))}
             </div>
@@ -41,7 +51,9 @@ export default function LearnPage() {
           <section className="space-y-2" aria-label="Glossary">
             <h2 className="text-sm font-medium">What the numbers mean</h2>
             <p className="text-[13px] text-muted-foreground">
-              Every number in the console, explained in plain English.
+              Every number in the console, explained in plain English. Use{" "}
+              <strong className="font-medium text-foreground">How numbers are made</strong> in the
+              header to open Raw → Gold lineage for any KPI.
             </p>
             <Link href="/b/learn/glossary" className="text-sm font-medium hover:underline">
               Open the glossary

@@ -2,22 +2,9 @@
 
 import { MapPin } from "lucide-react";
 import { useBusiness } from "@/lib/business/business-context";
-import type { BusinessScope } from "@/lib/business/types";
+import { scopeLabel } from "@/lib/personas";
 
-export function scopeLabel(scopes: BusinessScope[]): string {
-  const first = scopes[0];
-  if (!first || first.scope_type === "company") return "All stores";
-  switch (first.scope_type) {
-    case "city":
-      return `${first.scope_value} stores`;
-    case "store":
-      return `Store ${first.scope_value}`;
-    case "category":
-      return `${first.scope_value} category`;
-    default:
-      return first.scope_value;
-  }
-}
+export { scopeLabel };
 
 export function ScopeChip() {
   const { scopes } = useBusiness();

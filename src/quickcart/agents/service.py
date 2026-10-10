@@ -109,17 +109,21 @@ def _native_loop() -> NativeToolLoop | None:
 
 
 def _build_runtime() -> tuple[Any, Any]:
-    """(compiled graph, llm) — separated so tests can rebuild with a FakeLLM."""
+    """(compiled graph, llm) — separated so tests can rebuild with a FakeLLM.
+
+    Spark/Gold/Qdrant stay lazy so Grok chat can answer via business tools
+    without waiting on a JVM cold start.
+    """
     from quickcart.agents.graph import build_graph
     from quickcart.agents.llm import select_agent_llm
     from quickcart.agents.tools import ToolDeps, build_registry
 
     deps = ToolDeps(
-        readers=_readers(),
-        retriever=_retriever(),
+        readers=_Lazy(_readers),
+        retriever=_Lazy(_retriever),
         proposal_service=_proposal_service(),
         business=_business_deps(),
-        spark=_spark(),
+        spark=_Lazy(_spark),
         data_root=get_settings().data_root,
     )
     llm = select_agent_llm()
@@ -150,15 +154,29 @@ def reset_runtime() -> None:
     reset_tool_cache()
 
 
-def warmup_agent_runtime() -> None:
-    """Best-effort LLM construct + Gold/RAG warm so the first chat is not cold."""
+def warmup_agent_runtime(*, heavy: bool = False) -> None:
+    """Best-effort LLM (+ optional Gold/RAG) warm so the first chat is not cold.
+
+    ``heavy=False`` (default) only builds the LLM / native loop / registry —
+    safe for Grok-only local demos. Spark/Qdrant warm is opt-in via ``heavy``.
+    """
+    from quickcart.agents.gemini_tools import select_tool_llm
     from quickcart.agents.llm import select_agent_llm
 
     try:
         select_agent_llm()
     except Exception as exc:
         logger.warning("agent.warmup_llm_skipped", error=str(exc))
-    if os.environ.get("PYTEST_CURRENT_TEST"):
+    try:
+        select_tool_llm()
+        _native_loop()
+    except Exception as exc:
+        logger.warning("agent.warmup_native_skipped", error=str(exc))
+    try:
+        get_registry()
+    except Exception as exc:
+        logger.warning("agent.warmup_registry_skipped", error=str(exc))
+    if os.environ.get("PYTEST_CURRENT_TEST") or not heavy:
         return
     try:
         _readers()
@@ -168,6 +186,41 @@ def warmup_agent_runtime() -> None:
         _retriever()
     except Exception as exc:
         logger.warning("agent.warmup_retriever_skipped", error=str(exc))
+
+
+def agent_ready() -> dict[str, Any]:
+    """Lightweight readiness for the floating dock warmup ping."""
+    from quickcart.agents.llm import cloud_llm_configured, select_agent_llm
+
+    settings = get_settings()
+    native = _native_loop()
+    cloud = cloud_llm_configured(settings)
+    model: str | None = native.model if native is not None else None
+    if model is None and cloud:
+        try:
+            model = getattr(select_agent_llm(), "model", None)
+        except Exception:
+            model = settings.xai_model if settings.xai_api_key else settings.gemini_model or None
+    return {
+        "ready": native is not None or cloud,
+        "mode": "native" if native is not None else ("cloud" if cloud else "local"),
+        "model": model,
+        "voice_enabled": bool(
+            settings.voice_enabled
+            and (settings.gemini_api_key.strip() or settings.xai_api_key.strip())
+        ),
+        "voice_mode": (
+            "gemini_live"
+            if settings.voice_enabled and settings.gemini_api_key.strip()
+            else (
+                "grok_browser"
+                if settings.voice_enabled and settings.xai_api_key.strip()
+                else "off"
+            )
+        ),
+        "require_cloud": bool(settings.assistant_require_cloud or cloud),
+        "provider": str(getattr(settings, "assistant_provider", "grok")),
+    }
 
 
 def _llm_model_name(llm: Any) -> str | None:
@@ -189,12 +242,18 @@ def _result_payload(final: dict[str, Any], *, degraded: bool, model: str | None)
 
 
 def _run_native(
-    loop: NativeToolLoop, message: str, session_id: str | None, principal: Principal | None
+    loop: NativeToolLoop,
+    message: str,
+    session_id: str | None,
+    principal: Principal | None,
+    history: list[Any] | None = None,
 ) -> dict[str, Any]:
     """Drive the native loop to completion and return its ``done`` payload."""
     done: dict[str, Any] | None = None
     try:
-        for event, data in loop.run(message, session_id=session_id, principal=principal):
+        for event, data in loop.run(
+            message, session_id=session_id, principal=principal, history=history
+        ):
             if event == "done":
                 done = data
     except Exception as exc:
@@ -212,8 +271,30 @@ def _run_native(
     return done
 
 
+def _normalize_history(history: list[dict[str, str]] | None) -> list[dict[str, str]]:
+    out: list[dict[str, str]] = []
+    for item in history or []:
+        role = str(item.get("role", "")).strip()
+        text = str(item.get("text", "")).strip()
+        if role in {"user", "assistant"} and text:
+            out.append({"role": role, "text": text[:4000]})
+    return out[-20:]
+
+
+def _normalize_memories(memories: dict[str, list[str]] | None) -> dict[str, list[str]]:
+    mem = memories or {}
+    local = [str(x).strip()[:280] for x in (mem.get("local") or []) if str(x).strip()][:20]
+    global_m = [str(x).strip()[:280] for x in (mem.get("global") or []) if str(x).strip()][:20]
+    return {"local": local, "global": global_m}
+
+
 def chat(
-    message: str, session_id: str | None = None, principal: Principal | None = None
+    message: str,
+    session_id: str | None = None,
+    principal: Principal | None = None,
+    bot_id: str | None = None,
+    history: list[dict[str, str]] | None = None,
+    memories: dict[str, list[str]] | None = None,
 ) -> dict[str, Any]:
     """Run one request through the agent (the FastAPI contract).
 
@@ -223,14 +304,27 @@ def chat(
     genuine infrastructure failure lands in the degraded shape — tool-level
     failures stay inside the trace.
     """
+    from quickcart.agents.gemini_tools import Turn
     from quickcart.agents.graph import initial_state
 
+    hist = _normalize_history(history)
+    mem = _normalize_memories(memories)
     native = _native_loop()
     if native is not None:
-        return _run_native(native, message, session_id, principal)
+        # Native loop uses model/user/tool roles; map assistant → model.
+        native_history = [
+            Turn("model" if t["role"] == "assistant" else "user", t["text"]) for t in hist
+        ]
+        from quickcart.agents.bot_personality import memory_context_block
+
+        ctx = memory_context_block(hist, mem)
+        msg = f"{ctx}\n\nCurrent user request:\n{message}" if ctx else message
+        return _run_native(native, msg, session_id, principal, history=native_history)
     graph, llm = _runtime()
     model = _llm_model_name(llm)
-    state = initial_state(message, session_id)
+    state = initial_state(
+        message, session_id, bot_id=bot_id, history=hist, memories=mem
+    )
     state["principal"] = principal
     logger.info("agent.chat.start", session_id=session_id, message=message[:200])
     try:
@@ -279,6 +373,12 @@ def _chunk_answer(text: str, size: int = 48) -> list[str]:
     return [text[i : i + size] for i in range(0, len(text), size)]
 
 
+def _is_cloud_fallback_error(detail: str) -> bool:
+    lowered = detail.lower()
+    markers = ("quota", "429", "401", "403", "resource_exhausted", "permission", "api key")
+    return any(m in lowered for m in markers)
+
+
 def _native_sse(
     loop: NativeToolLoop, message: str, session_id: str | None, principal: Principal | None
 ) -> Iterator[bytes]:
@@ -323,27 +423,88 @@ def _proposal_card_frames(proposal: dict[str, Any]) -> Iterator[bytes]:
     yield _sse_bytes("card", card.model_dump(mode="json"))
 
 
-def chat_sse(
-    message: str, session_id: str | None = None, principal: Principal | None = None
+def _status_frame(
+    stage: str,
+    *,
+    model: str | None,
+    bot_id: str | None = None,
+    reasoning: str | None = None,
+) -> bytes:
+    from quickcart.agents.bot_personality import stage_detail
+
+    payload: dict[str, Any] = {
+        "stage": stage,
+        "model": model,
+        "detail": stage_detail(stage, bot_id=bot_id, extra=reasoning),
+    }
+    if reasoning:
+        payload["reasoning"] = reasoning
+    if bot_id:
+        payload["bot_id"] = bot_id
+    return _sse_bytes("status", payload)
+
+
+def _planned_sse(
+    message: str,
+    session_id: str | None,
+    principal: Principal | None,
+    bot_id: str | None = None,
+    history: list[dict[str, str]] | None = None,
+    memories: dict[str, list[str]] | None = None,
 ) -> Iterator[bytes]:
-    """Yield SSE frames for a live agent turn.
-
-    Events: ``status | tool | token | card | followups | error | done`` (``card`` and
-    ``followups`` are new; clients that ignore unknown events keep working). The
-    native loop streams for real; the planned pipeline replays its finished answer.
-    """
+    """LangGraph path (Grok / Ollama) — progressive status + chunked answer."""
     from quickcart.agents.graph import initial_state
+    from quickcart.agents.llm import LLMError, cloud_llm_configured
 
-    native = _native_loop()
-    if native is not None:
-        yield from _native_sse(native, message, session_id, principal)
+    hist = _normalize_history(history)
+    mem = _normalize_memories(memories)
+    settings = get_settings()
+    if settings.assistant_require_cloud and not cloud_llm_configured(settings):
+        detail = "Configure XAI_API_KEY (or GEMINI_API_KEY) to use the assistant."
+        yield _status_frame("listening", model=None, bot_id=bot_id)
+        yield _sse_bytes("error", {"detail": detail, "answer": detail, "degraded": True})
+        yield _sse_bytes(
+            "done",
+            {
+                "answer": detail,
+                "evidence": [],
+                "tool_trace": [],
+                "request_id": None,
+                "degraded": True,
+                "model": None,
+            },
+        )
         return
-    graph, llm = _runtime()
+
+    try:
+        graph, llm = _runtime()
+    except LLMError as exc:
+        detail = str(exc)
+        yield _status_frame("listening", model=None, bot_id=bot_id)
+        yield _sse_bytes("error", {"detail": detail, "answer": detail, "degraded": True})
+        yield _sse_bytes(
+            "done",
+            {
+                "answer": detail,
+                "evidence": [],
+                "tool_trace": [],
+                "request_id": None,
+                "degraded": True,
+                "model": None,
+            },
+        )
+        return
+
     model = _llm_model_name(llm)
-    state = initial_state(message, session_id)
+    state = initial_state(
+        message, session_id, bot_id=bot_id, history=hist, memories=mem
+    )
     state["principal"] = principal
-    logger.info("agent.chat.stream_start", session_id=session_id, message=message[:200])
-    yield _sse_bytes("status", {"stage": "classifying", "model": model})
+    logger.info(
+        "agent.chat.stream_start", mode="planned", session_id=session_id, bot_id=bot_id
+    )
+    yield _status_frame("listening", model=model, bot_id=bot_id)
+    yield _status_frame("classifying", model=model, bot_id=bot_id)
     accumulated: dict[str, Any] = dict(state)
     seen_tools = 0
     try:
@@ -354,8 +515,26 @@ def chat_sse(
                 if isinstance(delta, dict):
                     accumulated.update(delta)
                 stage = _NODE_STAGE.get(str(node))
+                reasoning: str | None = None
+                if node == "classify":
+                    reasoning = str(accumulated.get("intent_reasoning") or "") or None
+                    intent = accumulated.get("intent")
+                    if intent:
+                        reasoning = (
+                            f"intent={intent}"
+                            + (f" — {reasoning}" if reasoning else "")
+                        )
+                elif node == "plan":
+                    plan = accumulated.get("plan") or []
+                    if plan:
+                        names = ", ".join(
+                            str(s.get("tool")) for s in plan if isinstance(s, dict)
+                        )
+                        reasoning = f"will call {names}" if names else "no tools needed"
                 if stage:
-                    yield _sse_bytes("status", {"stage": stage, "model": model})
+                    yield _status_frame(
+                        stage, model=model, bot_id=bot_id, reasoning=reasoning
+                    )
                 if node == "tools":
                     trace = accumulated.get("tool_trace") or []
                     for entry in trace[seen_tools:]:
@@ -363,10 +542,18 @@ def chat_sse(
                             "tool",
                             {
                                 "name": entry.get("tool"),
-                                "ok": not str(entry.get("result_summary", "")).startswith("ERROR"),
+                                "ok": not str(entry.get("result_summary", "")).startswith(
+                                    "ERROR"
+                                ),
                                 "cache_hit": bool(entry.get("cache_hit")),
                                 "summary": entry.get("result_summary", ""),
                             },
+                        )
+                        yield _status_frame(
+                            "tools",
+                            model=model,
+                            bot_id=bot_id,
+                            reasoning=f"{entry.get('tool')}: {entry.get('result_summary', '')}",
                         )
                     seen_tools = len(trace)
                 if node == "answer":
@@ -396,3 +583,173 @@ def chat_sse(
         return
     payload = _result_payload(accumulated, degraded=False, model=model)
     yield _sse_bytes("done", payload)
+
+
+def chat_sse(
+    message: str,
+    session_id: str | None = None,
+    principal: Principal | None = None,
+    bot_id: str | None = None,
+    history: list[dict[str, str]] | None = None,
+    memories: dict[str, list[str]] | None = None,
+) -> Iterator[bytes]:
+    """Yield SSE frames for a live agent turn.
+
+    Events: ``status | tool | token | card | followups | error | done`` (``card`` and
+    ``followups`` are new; clients that ignore unknown events keep working). The
+    native loop streams for real; the planned pipeline replays its finished answer.
+    Immediate ``listening`` status lets the UI animate before any tool work.
+    """
+    hist = _normalize_history(history)
+    mem = _normalize_memories(memories)
+    native = _native_loop()
+    if native is not None:
+        from quickcart.agents.bot_personality import memory_context_block
+        from quickcart.agents.gemini_tools import Turn
+
+        native_history = [
+            Turn("model" if t["role"] == "assistant" else "user", t["text"]) for t in hist
+        ]
+        ctx = memory_context_block(hist, mem)
+        msg = f"{ctx}\n\nCurrent user request:\n{message}" if ctx else message
+        yield _status_frame("listening", model=native.model, bot_id=bot_id)
+        fallback = False
+        try:
+            for event, data in native.run(
+                msg, session_id=session_id, principal=principal, history=native_history
+            ):
+                if (
+                    event == "error"
+                    and get_settings().xai_api_key
+                    and _is_cloud_fallback_error(str(data.get("detail", "")))
+                ):
+                    logger.warning(
+                        "agent.chat.gemini_fallback_grok",
+                        detail=str(data.get("detail", ""))[:200],
+                    )
+                    fallback = True
+                    break
+                if event == "status" and isinstance(data, dict):
+                    yield _status_frame(
+                        str(data.get("stage", "planning")),
+                        model=data.get("model") or native.model,
+                        bot_id=bot_id,
+                        reasoning=str(data.get("detail") or "") or None,
+                    )
+                else:
+                    yield _sse_bytes(event, data)
+                if event == "done":
+                    return
+        except Exception as exc:
+            logger.exception("agent.chat.native_stream_failure", error=str(exc))
+            if get_settings().xai_api_key and _is_cloud_fallback_error(str(exc)):
+                fallback = True
+            else:
+                yield _sse_bytes(
+                    "error",
+                    {
+                        "detail": str(exc),
+                        "answer": DEGRADED_ANSWER,
+                        "degraded": True,
+                        "model": native.model,
+                    },
+                )
+                yield _sse_bytes(
+                    "done",
+                    {
+                        "answer": DEGRADED_ANSWER,
+                        "evidence": [],
+                        "tool_trace": [],
+                        "request_id": None,
+                        "degraded": True,
+                        "model": native.model,
+                    },
+                )
+                return
+        if fallback:
+            yield from _grok_fallback_sse(message, session_id, principal)
+            return
+        return
+    yield from _planned_sse(
+        message,
+        session_id,
+        principal,
+        bot_id=bot_id,
+        history=hist,
+        memories=mem,
+    )
+
+
+def _grok_fallback_sse(
+    message: str, session_id: str | None, principal: Principal | None
+) -> Iterator[bytes]:
+    """Short progressive Grok completion when Gemini quota/auth fails mid-stream."""
+    from quickcart.agents.llm import GrokLLM, LLMError
+
+    settings = get_settings()
+    try:
+        llm = GrokLLM(
+            model=settings.xai_model,
+            base_url=settings.xai_base_url,
+            api_key=settings.xai_api_key,
+        )
+    except LLMError as exc:
+        yield _sse_bytes("error", {"detail": str(exc), "degraded": True})
+        yield _sse_bytes(
+            "done",
+            {
+                "answer": DEGRADED_ANSWER,
+                "evidence": [],
+                "tool_trace": [],
+                "request_id": None,
+                "degraded": True,
+                "model": None,
+            },
+        )
+        return
+    model = llm.model
+    yield _sse_bytes("status", {"stage": "planning", "model": model})
+    yield _sse_bytes("status", {"stage": "answer", "model": model})
+    try:
+        answer = llm.chat(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are QuickCart Assistant. Answer briefly in plain English. "
+                        "You have no live tools in this fallback turn — say what you would "
+                        "check when data is unavailable rather than inventing figures."
+                    ),
+                },
+                {"role": "user", "content": message},
+            ],
+            max_tokens=400,
+        )
+    except LLMError as exc:
+        yield _sse_bytes("error", {"detail": str(exc), "degraded": True, "model": model})
+        yield _sse_bytes(
+            "done",
+            {
+                "answer": DEGRADED_ANSWER,
+                "evidence": [],
+                "tool_trace": [],
+                "request_id": None,
+                "degraded": True,
+                "model": model,
+            },
+        )
+        return
+    for chunk in _chunk_answer(answer):
+        yield _sse_bytes("token", {"text": chunk})
+    yield _sse_bytes(
+        "done",
+        {
+            "answer": answer,
+            "evidence": [],
+            "tool_trace": [],
+            "request_id": None,
+            "degraded": False,
+            "model": model,
+            "mode": "grok_fallback",
+        },
+    )

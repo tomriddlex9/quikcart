@@ -140,6 +140,9 @@ def demo_personas(request: Request) -> list[dict[str, Any]]:
             "experience": ROLES[demo.role][1],
             "display_name": demo.display_name,
             "blurb": demo.blurb,
+            "scopes": [
+                {"scope_type": s.scope_type, "scope_value": s.scope_value} for s in demo.scopes
+            ],
             "can_approve": (
                 not settings.public_demo
                 and bool(ROLE_PERMISSIONS[demo.role].intersection(APPROVE_PERMISSIONS))

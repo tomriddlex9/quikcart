@@ -1,8 +1,11 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { useTheme } from "next-themes";
 import L from "leaflet";
 import type { GeoStore } from "@/lib/types";
+import { isDarkLike } from "@/lib/theme";
+import { cn } from "@/lib/utils";
 
 import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
 import markerIcon from "leaflet/dist/images/marker-icon.png";
@@ -145,5 +148,16 @@ export function StoreMapLeaflet({
     focusStore(map, marker, store);
   }, [selectedStoreId, focusNonce]);
 
-  return <div ref={containerRef} className="h-full w-full rounded-lg" />;
+  const { resolvedTheme } = useTheme();
+  const darkTiles = isDarkLike(resolvedTheme);
+
+  return (
+    <div
+      ref={containerRef}
+      className={cn(
+        "h-full w-full rounded-lg [&_.leaflet-tile-pane]:transition-[filter]",
+        darkTiles && "[&_.leaflet-tile-pane]:invert [&_.leaflet-tile-pane]:hue-rotate-180 [&_.leaflet-tile-pane]:brightness-[0.9] [&_.leaflet-tile-pane]:contrast-[1.1]",
+      )}
+    />
+  );
 }

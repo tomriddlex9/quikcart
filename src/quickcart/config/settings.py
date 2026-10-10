@@ -49,24 +49,35 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "qwen2.5:1.5b"
 
-    # Google Gemini (preferred for NL→SQL on the /query console)
+    # Google Gemini (optional; assistant prefers Grok when XAI_API_KEY is set)
     gemini_api_key: str = ""
     gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
     gemini_model: str = "gemini-3.8-flash"
 
-    # Gemini Live voice (Phase B5). Off unless explicitly enabled *and* a key is set.
+    # Voice: Gemini Live when GEMINI_API_KEY is set; otherwise Grok browser STT/TTS
+    # when XAI_API_KEY is set (client talks to /agent/chat/stream).
     gemini_live_model: str = "gemini-3.8-live"
     gemini_live_voice: str = "Aoede"
-    voice_enabled: bool = False
+    voice_enabled: bool = True
     # How long a minted ephemeral token may open its (single) session.
     voice_token_ttl_seconds: int = 120
     # Hard cap on one voice session's length (the client closes at this mark).
     voice_max_session_seconds: int = 600
 
-    # xAI Grok (optional OpenAI-compatible chat calls)
+    # xAI Grok — preferred assistant LLM (text + tool graph)
     xai_api_key: str = ""
     xai_base_url: str = "https://api.x.ai/v1"
     xai_model: str = "grok-3-mini"
+
+    # Assistant cloud provider: grok (default) | gemini | auto (grok then gemini).
+    assistant_provider: str = "grok"
+
+    # When true, the assistant refuses local Ollama and requires a cloud key.
+    assistant_require_cloud: bool = False
+
+    # Background Spark/Gold cache warm at API start. Off by default locally —
+    # Spark cold-start can OOM-kill the whole API process on small machines.
+    gold_warmup_enabled: bool = False
 
     # Identity & RBAC (Phase B1)
     auth_secret: str = "quickcart-dev-secret-change-me"

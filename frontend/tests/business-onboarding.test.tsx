@@ -24,11 +24,13 @@ describe("metricsForGoals", () => {
 
 describe("withSpotlight", () => {
   it("adds a spot param for known pages and keeps the query", () => {
-    expect(withSpotlight("/b/today")).toBe("/b/today?spot=attention");
+    expect(withSpotlight("/b/today")).toBe("/b/today?spot=headline");
+    expect(withSpotlight("/b/today", "attention")).toBe("/b/today?spot=attention");
     expect(withSpotlight("/b/products?tab=slow")).toBe("/b/products?tab=slow&spot=products");
   });
-  it("leaves other links alone", () => {
-    expect(withSpotlight("/b/money")).toBe("/b/money");
+  it("leaves unknown links alone unless overridden", () => {
+    expect(withSpotlight("/b/reports")).toBe("/b/reports");
+    expect(withSpotlight("/b/money")).toBe("/b/money?spot=money");
   });
 });
 

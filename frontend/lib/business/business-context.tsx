@@ -21,6 +21,11 @@ import {
   isBusinessPersonaName,
 } from "@/lib/business/demo-business";
 import type { BusinessPersona, BusinessScope } from "@/lib/business/types";
+import {
+  personaViewFor,
+  type PersonaView,
+} from "@/lib/business/persona-views";
+import { isOpsPersonaId } from "@/lib/personas";
 
 export const AUTH_BASE = "/qc-api/v1/auth";
 const PREFS_KEY = "qc_business_prefs_v1";
@@ -49,7 +54,7 @@ export const DEFAULT_BUSINESS_PREFS: BusinessPrefs = {
   completed_journeys: [],
   checklist_done: [],
   checklist_dismissed: false,
-  voice_enabled: false,
+  voice_enabled: true,
 };
 
 /** The four tiles shown on Today unless the user picks their own. */
@@ -65,6 +70,7 @@ interface MeResponse {
     briefing_time?: string | null;
     completed_journeys?: string[];
     home_store_id?: number | null;
+    voice_enabled?: boolean;
     onboarding_state?: Record<string, unknown>;
   } | null;
 }
@@ -76,8 +82,14 @@ interface BusinessContextValue {
   scopes: BusinessScope[];
   /** True when a real session answered /auth/me. */
   signedIn: boolean;
+  /** Session persona string from /auth/me (may be an ops role while browsing /b). */
+  sessionPersona: string | null;
+  /** Signed-in ops user previewing the business console on sample scope. */
+  isOpsPreview: boolean;
   prefs: BusinessPrefs;
   pinned: string[];
+  /** Layout registry entry for the active business persona. */
+  personaView: PersonaView;
   updatePrefs: (patch: Partial<BusinessPrefs>) => Promise<void>;
   setDemoPersona: (persona: BusinessPersona) => void;
 }
@@ -111,6 +123,7 @@ function serverPatch(patch: Partial<BusinessPrefs>, merged: BusinessPrefs): Reco
   if (patch.pinned_metrics) body.pinned_metrics = patch.pinned_metrics;
   if (patch.briefing_time) body.briefing_time = patch.briefing_time;
   if (patch.completed_journeys) body.completed_journeys = patch.completed_journeys;
+  if (patch.voice_enabled !== undefined) body.voice_enabled = patch.voice_enabled;
   if (patch.store_ids && patch.store_ids.length > 0) body.home_store_id = patch.store_ids[0];
   if (
     patch.onboarded !== undefined ||
@@ -175,6 +188,10 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
                   ? state.checklist_dismissed
                   : next.checklist_dismissed,
               onboarded: state.completed === true || next.onboarded,
+              voice_enabled:
+                typeof server.voice_enabled === "boolean"
+                  ? server.voice_enabled
+                  : next.voice_enabled,
             };
           }
         }
@@ -222,16 +239,29 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo<BusinessContextValue>(() => {
-    const sessionPersona = isBusinessPersonaName(me?.persona) ? me?.persona : null;
-    const persona = sessionPersona ?? demoPersona;
+    const sessionPersona = me?.persona ?? null;
+    const businessSession = isBusinessPersonaName(sessionPersona) ? sessionPersona : null;
+    const isOpsPreview = !!me && !me.anonymous && isOpsPersonaId(sessionPersona);
+    const persona = businessSession ?? demoPersona;
+    // Ops preview must not mix a real ops name with demo business scopes.
+    const displayName = isOpsPreview
+      ? demoDisplayName(persona)
+      : (me?.display_name ?? demoDisplayName(persona));
+    const scopes =
+      businessSession && me?.scopes?.length ? me.scopes : demoScopes(persona);
+    const view = personaViewFor(persona);
     return {
       ready,
       persona,
-      displayName: me?.display_name ?? demoDisplayName(persona),
-      scopes: me?.scopes?.length ? me.scopes : demoScopes(persona),
-      signedIn: me !== null,
+      displayName,
+      scopes,
+      signedIn: me !== null && !me.anonymous,
+      sessionPersona,
+      isOpsPreview,
       prefs,
-      pinned: prefs.pinned_metrics.length > 0 ? prefs.pinned_metrics : DEFAULT_PINNED,
+      pinned:
+        prefs.pinned_metrics.length > 0 ? prefs.pinned_metrics : view.pinnedDefaults,
+      personaView: view,
       updatePrefs,
       setDemoPersona,
     };
@@ -246,8 +276,11 @@ const FALLBACK: BusinessContextValue = {
   displayName: demoDisplayName(DEFAULT_DEMO_PERSONA),
   scopes: demoScopes(DEFAULT_DEMO_PERSONA),
   signedIn: false,
+  sessionPersona: null,
+  isOpsPreview: false,
   prefs: DEFAULT_BUSINESS_PREFS,
-  pinned: DEFAULT_PINNED,
+  pinned: personaViewFor(DEFAULT_DEMO_PERSONA).pinnedDefaults,
+  personaView: personaViewFor(DEFAULT_DEMO_PERSONA),
   updatePrefs: async () => {},
   setDemoPersona: () => {},
 };

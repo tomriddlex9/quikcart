@@ -1,50 +1,47 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { AnswerCard } from "@/components/assistant/answer-card";
-import { FollowUpChips } from "@/components/assistant/follow-up-chips";
-import { HowIGotThis } from "@/components/assistant/how-i-got-this";
-import { RareUiCredit } from "@/components/assistant/rare-ui-credit";
-import { QuickQuestionChips } from "@/components/business/quick-question-chips";
+import { Suspense, useEffect, useRef } from "react";
+import { ChatPanel } from "@/components/assistant/chat-dock/chat-panel";
+import { PersonaBot } from "@/components/assistant/chat-dock/persona-bot";
+import { BusinessPage } from "@/components/business/business-page";
 import { useMarkChecklist } from "@/components/business/getting-started-checklist";
-import { Button } from "@/components/ui/button";
 import { useBusiness } from "@/lib/business/business-context";
-import { streamAgentChat } from "@/lib/agent-stream";
-import type { AssistantCard, Provenance } from "@/lib/assistant/types";
+import {
+  chatActions,
+  emotionFromVoicePhase,
+  useChatSession,
+} from "@/lib/assistant/chat-session";
 import { useDataMode } from "@/lib/data-mode";
+import { useVoiceSession } from "@/lib/voice/use-voice-session";
+import { isConnected } from "@/lib/voice/voice-machine";
 import { cn } from "@/lib/utils";
-
-interface Message {
-  id: number;
-  role: "user" | "assistant";
-  text: string;
-  pending?: boolean;
-  failed?: boolean;
-  cards?: AssistantCard[];
-  followups?: string[];
-  provenance?: Provenance | null;
-  tools?: string[];
-  /** Tool the assistant is currently using, shown while pending. */
-  working?: string | null;
-}
-
-const SUGGESTED = [
-  "How are sales today compared with last week?",
-  "Which stores need help right now?",
-  "What is about to run out?",
-  "Why are deliveries slow?",
-  "How much have we given away in discounts?",
-];
+import { botStyleFor } from "@/components/assistant/chat-dock/bot-catalog";
 
 const SAMPLE_ANSWER =
   "This is a sample answer because you are viewing sample data. With live data connected, the assistant looks at today's numbers and explains what changed and what to do next.";
 
+const STATUS_TEXT = {
+  off: "Opening voice…",
+  connecting: "Connecting…",
+  ready: "Listening for you…",
+  listening: "Listening…",
+  thinking: "Thinking…",
+  speaking: "Speaking…",
+  error: "Voice stopped.",
+} as const;
+
 function AskView() {
   const { source } = useDataMode();
-  const { prefs } = useBusiness();
+  const { persona, sessionPersona, prefs } = useBusiness();
   const mark = useMarkChecklist();
   const params = useSearchParams();
+  const session = useChatSession();
+  const voice = useVoiceSession();
+  const autoSent = useRef(false);
+  const botPersona = session.botId || (sessionPersona && sessionPersona.length > 0 ? sessionPersona : persona);
+  const bot = botStyleFor(botPersona);
+
   const initialQ = params.get("q");
   const contextBits = Array.from(params.entries())
     .filter(([key]) => key.startsWith("ctx_") && key.length > 4)
@@ -53,186 +50,151 @@ function AskView() {
     initialQ && contextBits.length > 0
       ? `${initialQ} (context: ${contextBits.join(", ")})`
       : initialQ;
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [draft, setDraft] = useState(initialQ ?? "");
-  const [busy, setBusy] = useState(false);
-  const sessionId = useRef<string>("");
-  const nextId = useRef(1);
-  const abort = useRef<AbortController | null>(null);
-  const bottom = useRef<HTMLDivElement>(null);
-  const autoSent = useRef(false);
 
   useEffect(() => {
-    sessionId.current = `biz-${crypto.randomUUID()}`;
-    return () => abort.current?.abort();
+    chatActions.setHideFab(true);
+    chatActions.setOpen(false);
+    return () => chatActions.setHideFab(false);
   }, []);
 
   useEffect(() => {
-    bottom.current?.scrollIntoView({ block: "end" });
-  }, [messages]);
-
-  const send = useCallback(
-    async (question: string) => {
-      const text = question.trim();
-      if (!text || busy) return;
-      const assistantId = nextId.current + 1;
-      nextId.current += 2;
-      setDraft("");
-      setBusy(true);
-      mark("ask_question");
-      setMessages((prev) => [
-        ...prev,
-        { id: assistantId - 1, role: "user", text },
-        { id: assistantId, role: "assistant", text: "", pending: true },
-      ]);
-      const patch = (fn: (m: Message) => Message) =>
-        setMessages((prev) => prev.map((m) => (m.id === assistantId ? fn(m) : m)));
-
-      if (source === "demo") {
-        patch((m) => ({ ...m, text: SAMPLE_ANSWER, pending: false }));
-        setBusy(false);
-        return;
-      }
-      abort.current = new AbortController();
-      await streamAgentChat(
-        text,
-        sessionId.current,
-        {
-          onToolStart: (tool) =>
-            patch((m) => ({
-              ...m,
-              working: tool.name,
-              tools: m.tools?.includes(tool.name) ? m.tools : [...(m.tools ?? []), tool.name],
-            })),
-          onToken: (t) => patch((m) => ({ ...m, text: m.text + t })),
-          onCard: (card) => patch((m) => ({ ...m, cards: [...(m.cards ?? []), card] })),
-          onFollowups: (items) => patch((m) => ({ ...m, followups: items })),
-          onDone: (payload) =>
-            patch((m) => ({
-              ...m,
-              text: payload.answer || m.text,
-              // `done` carries the final verified set; prefer it over streamed partials.
-              cards: payload.cards.length > 0 ? payload.cards : m.cards,
-              followups: payload.followups.length > 0 ? payload.followups : m.followups,
-              provenance: payload.provenance,
-              pending: false,
-              working: null,
-            })),
-          onError: () =>
-            patch((m) => ({
-              ...m,
-              pending: false,
-              failed: true,
-              text:
-                m.text ||
-                "The assistant isn't connected yet. Your question wasn't lost. Try again in a moment, or use the pages on the left to look it up.",
-            })),
-        },
-        abort.current.signal,
-      );
-      patch((m) => (m.pending ? { ...m, pending: false } : m));
-      setBusy(false);
-    },
-    [busy, mark, source],
-  );
-
-  // A question handed over by an "Ask about this" button is sent once on arrival.
-  useEffect(() => {
     if (initial && !autoSent.current) {
       autoSent.current = true;
-      void send(initial);
+      mark("ask_question");
+      void chatActions.send(initial, {
+        demo: source === "demo",
+        sampleAnswer: SAMPLE_ANSWER,
+      });
     }
-  }, [initial, send]);
+  }, [initial, mark, source]);
+
+  useEffect(() => {
+    if (prefs.first_question && session.messages.length === 0 && !initial) {
+      chatActions.setDraft(prefs.first_question);
+    }
+  }, [prefs.first_question, session.messages.length, initial]);
+
+  const emotion =
+    session.panelMode === "voice" && voice.availability === "available"
+      ? emotionFromVoicePhase(voice.state.phase, session.busy)
+      : session.emotion;
+
+  const voiceModeLabel =
+    voice.mode === "grok_browser"
+      ? "Grok voice (browser)"
+      : voice.mode === "gemini_live"
+        ? "Gemini Live voice"
+        : null;
+
+  const voiceUnavailable = {
+    onStart: () => undefined,
+    onStop: () => undefined,
+    onPttDown: () => undefined,
+    onPttUp: () => undefined,
+    onSend: () => undefined,
+    onToggleListen: () => undefined,
+    onInterrupt: () => undefined,
+    onToggleMute: () => undefined,
+  };
+  const voiceProps =
+    !prefs.voice_enabled
+      ? {
+          available: false as const,
+          unsupportedReason: "Enable voice in Settings to talk to the assistant.",
+          modeLabel: voiceModeLabel,
+          active: false,
+          connected: false,
+          listening: false,
+          muted: false,
+          canSend: false,
+          phaseLabel: "Voice off in settings",
+          ...voiceUnavailable,
+        }
+      : voice.availability === "available"
+      ? {
+          available: true as const,
+          modeLabel: voiceModeLabel,
+          persistent: voice.persistent,
+          active: voice.active,
+          connected: isConnected(voice.state.phase),
+          listening: voice.state.phase === "listening",
+          muted: voice.state.muted,
+          canSend: voice.canSend,
+          phase: voice.state.phase,
+          phaseLabel:
+            voice.state.phase === "error"
+              ? (voice.state.error ?? STATUS_TEXT.error)
+              : STATUS_TEXT[voice.state.phase],
+          statusDetail: voice.statusDetail,
+          captionUser: voice.state.caption.user,
+          captionAssistant: voice.state.caption.assistant,
+          getLevel: voice.getLevel,
+          getOutputLevel: voice.getOutputLevel,
+          onStart: () => void voice.start(),
+          onStop: () => voice.stop(),
+          onPttDown: () => voice.pttDown(),
+          onPttUp: () => voice.pttUp(),
+          onSend: () => voice.sendNow(),
+          onToggleListen: () => voice.toggleListen(),
+          onInterrupt: () => voice.interrupt(),
+          onToggleMute: () => voice.toggleMute(),
+        }
+      : {
+          available: false as const,
+          modeLabel: voiceModeLabel,
+          unsupportedReason:
+            voice.availability === "unsupported"
+              ? voice.unsupportedReason
+              : "Voice needs VOICE_ENABLED and XAI_API_KEY (Grok) or GEMINI_API_KEY (Live).",
+          active: false,
+          connected: false,
+          listening: false,
+          muted: false,
+          canSend: false,
+          phaseLabel: "Voice unavailable",
+          ...voiceUnavailable,
+        };
 
   return (
-    <div className="flex min-h-[calc(100vh-10rem)] flex-col gap-4">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight">Ask center</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Ask about your stores in plain English. The assistant reads the same numbers you see here
-          and can suggest actions, but a person always approves them.
-        </p>
-      </header>
-
-      <div className="flex-1 space-y-3" aria-live="polite">
-        {messages.length === 0 ? (
-          <div className="space-y-3 rounded-xl border border-dashed border-border p-5">
-            <p className="text-sm font-medium">Try one of these</p>
-            <QuickQuestionChips questions={SUGGESTED} />
-            {prefs.first_question ? (
-              <p className="text-xs text-muted-foreground">
-                You picked this during setup:{" "}
-                <button
-                  type="button"
-                  className="underline underline-offset-2"
-                  onClick={() => void send(prefs.first_question ?? "")}
-                >
-                  {prefs.first_question}
-                </button>
-              </p>
-            ) : null}
-          </div>
-        ) : (
-          messages.map((m, index) => (
-            <div key={m.id} className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}>
-              <div className={cn("flex min-w-0 flex-col gap-2", m.role === "user" ? "max-w-[85%] items-end" : "w-full max-w-[85%] items-start")}>
-                <div
-                  className={cn(
-                    "whitespace-pre-wrap rounded-2xl px-4 py-2.5 text-sm leading-relaxed",
-                    m.role === "user" ? "bg-primary text-primary-foreground" : "bg-card ring-1 ring-foreground/10",
-                    m.failed && "text-muted-foreground",
-                  )}
-                >
-                  {m.text || (m.pending ? (m.working ? `Looking at ${m.working.replace(/_/g, " ")}…` : "Thinking…") : "")}
-                </div>
-                {m.cards && m.cards.length > 0 ? (
-                  <div className="grid w-full gap-2 sm:grid-cols-2">
-                    {m.cards.map((card, i) => (
-                      <AnswerCard
-                        key={`${m.id}-${i}`}
-                        card={card}
-                        className={card.type === "table" || card.type === "risk_list" ? "sm:col-span-2" : undefined}
-                      />
-                    ))}
-                  </div>
-                ) : null}
-                {m.role === "assistant" && !m.pending && !m.failed ? (
-                  <HowIGotThis provenance={m.provenance ?? null} tools={m.tools} />
-                ) : null}
-                {m.followups && m.followups.length > 0 && !m.pending && index === messages.length - 1 ? (
-                  <FollowUpChips items={m.followups} onPick={(q) => void send(q)} disabled={busy} />
-                ) : null}
-              </div>
-            </div>
-          ))
-        )}
-        <div ref={bottom} />
+    <BusinessPage
+      title="Ask center"
+      description="Ask about your stores in plain English. Same assistant as the floating bot — grounded in your numbers, actions always need a human."
+    >
+      <div className="grid min-h-[calc(100vh-14rem)] gap-6 lg:grid-cols-[minmax(0,1fr)_16rem]">
+        <div
+          className={cn(
+            "overflow-hidden rounded-xl border border-border bg-card shadow-sm",
+            "flex min-h-[32rem] flex-col",
+          )}
+        >
+          <ChatPanel
+            persona={botPersona}
+            experience="business"
+            variant="page"
+            demo={source === "demo"}
+            sampleAnswer={SAMPLE_ANSWER}
+            emotion={emotion}
+            voice={voiceProps}
+            className="flex-1"
+          />
+        </div>
+        <aside className="hidden flex-col items-center justify-start gap-4 rounded-xl border border-dashed border-border bg-muted/30 p-6 lg:flex">
+          <PersonaBot
+            persona={botPersona}
+            emotion={emotion}
+            size={160}
+            mouthSource={voice.getOutputLevel}
+          />
+          <p className="text-center text-sm font-medium" style={{ color: bot.accent }}>
+            {bot.displayName}
+          </p>
+          <p className="text-center text-sm text-muted-foreground">{bot.blurb}</p>
+          <p className="text-center text-xs text-muted-foreground">
+            Tap the bot name in chat to switch personality. Same corner dock on every screen.
+          </p>
+        </aside>
       </div>
-
-      <form
-        className="sticky bottom-16 flex gap-2 rounded-xl bg-background/90 py-2 backdrop-blur md:bottom-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void send(draft);
-        }}
-      >
-        <label htmlFor="ask-input" className="sr-only">
-          Your question
-        </label>
-        <input
-          id="ask-input"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder="Ask about sales, stores, delivery…"
-          autoComplete="off"
-          className="h-10 min-w-0 flex-1 rounded-lg border border-input bg-card px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-        />
-        <Button type="submit" size="lg" disabled={busy || draft.trim() === ""}>
-          {busy ? "Working…" : "Ask"}
-        </Button>
-      </form>
-      <RareUiCredit className="text-center" />
-    </div>
+    </BusinessPage>
   );
 }
 

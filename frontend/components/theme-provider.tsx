@@ -2,6 +2,7 @@
 
 import { ThemeProvider as NextThemesProvider } from "next-themes";
 import type { ComponentProps } from "react";
+import { THEME_CLASS_VALUES } from "@/lib/theme";
 
 export function ThemeProvider({
   children,
@@ -10,8 +11,9 @@ export function ThemeProvider({
   return (
     <NextThemesProvider
       attribute="class"
-      defaultTheme="dark"
+      defaultTheme="black"
       enableSystem
+      themes={[...THEME_CLASS_VALUES]}
       disableTransitionOnChange
       {...props}
     >

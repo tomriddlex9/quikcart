@@ -29,15 +29,16 @@ import type {
   TrendPoint,
 } from "@/lib/business/types";
 
+import { PERSONA_CATALOG } from "@/lib/personas";
+
 export const DEFAULT_DEMO_PERSONA: BusinessPersona = "business_exec";
 
-export const DEMO_PERSONAS: { persona: BusinessPersona; label: string; displayName: string }[] = [
-  { persona: "business_exec", label: "Business executive", displayName: "Asha Rao" },
-  { persona: "city_manager", label: "City manager (Bengaluru)", displayName: "Karan Mehta" },
-  { persona: "store_manager", label: "Store manager (Store 8)", displayName: "Priya Nair" },
-  { persona: "category_manager", label: "Category manager (Dairy)", displayName: "Dev Malhotra" },
-  { persona: "leadership", label: "Leadership", displayName: "Meera Kapoor" },
-];
+export const DEMO_PERSONAS: { persona: BusinessPersona; label: string; displayName: string }[] =
+  PERSONA_CATALOG.filter((p) => p.side === "business").map((p) => ({
+    persona: p.persona as BusinessPersona,
+    label: p.label,
+    displayName: p.displayName,
+  }));
 
 export function isBusinessPersonaName(value: string | null | undefined): value is BusinessPersona {
   return DEMO_PERSONAS.some((p) => p.persona === value);
@@ -723,7 +724,7 @@ export const JOURNEYS: Record<string, { summary: JourneySummary; steps: StepSeed
     steps: [
       { title: "Check delivery health", body: "On-time share, late share, and average delivery time for the day.", link: "/b/delivery", keys: ["on_time_rate", "late_rate", "avg_delivery_minutes"] },
       { title: "Compare stores", body: "The table lists stores with the slowest deliveries first, so you can see whether slowness is everywhere or in a few places.", link: "/b/delivery", keys: ["on_time_rate"] },
-      { title: "Understand the number", body: "Read exactly how late deliveries are defined before acting on them.", link: "/b/learn", keys: ["late_rate"] },
+      { title: "Understand the number", body: "Read exactly how late deliveries are defined before acting on them.", link: "/b/learn/glossary", keys: ["late_rate"] },
       { title: "Look at the weakest store", body: "Open the weakest store to compare its hourly orders with its delivery times.", link: "/b/stores", keys: ["orders"] },
     ],
   },

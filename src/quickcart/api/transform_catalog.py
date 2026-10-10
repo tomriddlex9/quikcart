@@ -43,6 +43,7 @@ class TransformOp:
     outputs: list[str]
     rules: list[TransformRule] = field(default_factory=list)
     impact: dict[str, Any] = field(default_factory=dict)
+    source_path: str | None = None
 
 
 def _sql_enum(values: list[str]) -> str:
@@ -220,6 +221,7 @@ def _silver_ops() -> list[TransformOp]:
                 inputs=[f"bronze.{bronze}"],
                 outputs=[f"silver.{silver}", f"quarantine.{quarantine}"],
                 rules=rules,
+                source_path="src/quickcart/lakehouse/silver/transforms.py::CLEANERS",
                 impact={
                     "rows_in": 50_000,
                     "rows_out": 48_500,
@@ -346,6 +348,107 @@ WHERE o.status <> 'CANCELLED'
 GROUP BY pr.product_id, pr.sku, pr.category, CAST(o.placed_at AS date);
 """,
     ),
+    "gold_store_scorecard_daily": (
+        ["gold.gold_store_hourly_metrics"],
+        "Roll hourly store KPIs up to a daily scorecard grain.",
+        """-- gold_store_scorecard_daily ← gold_store_hourly_metrics
+SELECT
+  CAST(metric_hour AS date) AS day,
+  store_id,
+  SUM(orders_placed) AS orders,
+  SUM(orders_cancelled) AS orders_cancelled,
+  SUM(gmv) AS sales,
+  AVG(late_delivery_rate) AS late_rate,
+  AVG(cancel_rate) AS cancel_rate
+FROM gold_store_hourly_metrics
+GROUP BY CAST(metric_hour AS date), store_id;
+""",
+    ),
+    "gold_margin_daily": (
+        ["silver.silver_orders", "silver.silver_order_items"],
+        "Daily gross/net sales, COGS, and contribution margin by store.",
+        """-- gold_margin_daily ← silver_orders + order_items
+SELECT
+  CAST(o.placed_at AS date) AS day,
+  o.store_id,
+  SUM(o.total_amount) AS gross_sales,
+  SUM(COALESCE(o.discount_amount, 0)) AS discounts,
+  SUM(o.total_amount) - SUM(COALESCE(o.discount_amount, 0)) AS net_sales,
+  SUM(oi.quantity * oi.unit_cost) AS cogs
+FROM silver_orders o
+LEFT JOIN silver_order_items oi ON oi.order_id = o.order_id
+WHERE o.status <> 'CANCELLED'
+GROUP BY CAST(o.placed_at AS date), o.store_id;
+""",
+    ),
+    "gold_category_daily": (
+        ["silver.silver_orders", "silver.silver_order_items", "silver.silver_products"],
+        "Category sales, units, and orders by day (non-cancelled).",
+        """-- gold_category_daily ← orders + order_items + products
+SELECT
+  CAST(o.placed_at AS date) AS day,
+  pr.category,
+  SUM(oi.line_total) AS sales,
+  SUM(oi.quantity) AS units,
+  COUNT(DISTINCT o.order_id) AS orders
+FROM silver_order_items oi
+JOIN silver_orders o ON o.order_id = oi.order_id
+JOIN silver_products pr ON pr.product_id = oi.product_id
+WHERE o.status <> 'CANCELLED'
+GROUP BY CAST(o.placed_at AS date), pr.category;
+""",
+    ),
+    "gold_wastage_daily": (
+        ["raw.wastage_events"],
+        "Daily wastage units and cost by store from operational wastage events.",
+        """-- gold_wastage_daily ← wastage_events
+SELECT
+  CAST(occurred_at AS date) AS day,
+  store_id,
+  SUM(quantity) AS units,
+  SUM(cost_amount) AS cost,
+  COUNT(*) AS events
+FROM wastage_events
+GROUP BY CAST(occurred_at AS date), store_id;
+""",
+    ),
+    "gold_customer_health_daily": (
+        ["silver.silver_orders"],
+        "New vs returning customers and optional ratings by day.",
+        """-- gold_customer_health_daily ← silver_orders
+WITH first_order AS (
+  SELECT customer_id, MIN(CAST(placed_at AS date)) AS first_day
+  FROM silver_orders
+  GROUP BY customer_id
+)
+SELECT
+  CAST(o.placed_at AS date) AS day,
+  COUNT(DISTINCT o.customer_id) AS active_customers,
+  COUNT(DISTINCT CASE WHEN CAST(o.placed_at AS date) = f.first_day
+                      THEN o.customer_id END) AS new_customers,
+  COUNT(*) AS orders
+FROM silver_orders o
+JOIN first_order f ON f.customer_id = o.customer_id
+WHERE o.status <> 'CANCELLED'
+GROUP BY CAST(o.placed_at AS date);
+""",
+    ),
+    "gold_promo_daily": (
+        ["silver.silver_orders"],
+        "Promotion redemptions, discount spend, and sales by day.",
+        """-- gold_promo_daily ← silver_orders
+SELECT
+  CAST(placed_at AS date) AS day,
+  promotion_id,
+  COUNT(*) AS orders,
+  SUM(COALESCE(promo_discount, 0)) AS discount_spend,
+  SUM(total_amount) AS sales,
+  COUNT(DISTINCT customer_id) AS customers
+FROM silver_orders
+WHERE status <> 'CANCELLED' AND promotion_id IS NOT NULL
+GROUP BY CAST(placed_at AS date), promotion_id;
+""",
+    ),
 }
 
 
@@ -353,6 +456,7 @@ def _gold_ops() -> list[TransformOp]:
     ops: list[TransformOp] = []
     for mart_name in MARTS:
         inputs, summary, sql = _GOLD_SQL[mart_name]
+        fn = MARTS[mart_name].__name__
         ops.append(
             TransformOp(
                 id=f"gold-build-{mart_name.removeprefix('gold_')}",
@@ -369,6 +473,7 @@ def _gold_ops() -> list[TransformOp]:
                     "rows_quarantined": 0,
                     "latency_ms": 5_200,
                 },
+                source_path=f"src/quickcart/lakehouse/gold/marts.py::{fn}",
             )
         )
     return ops

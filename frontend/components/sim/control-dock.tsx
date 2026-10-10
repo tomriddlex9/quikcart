@@ -162,8 +162,9 @@ export function ControlDock() {
       <div className="overflow-hidden rounded-xl border border-border bg-card/95 shadow-lg ring-1 ring-foreground/10 backdrop-blur-md">
         <button
           type="button"
+          aria-expanded={open}
           onClick={() => setOpen((value) => !value)}
-          className="flex w-full items-center gap-2 px-3.5 py-2.5 text-left"
+          className="flex w-full items-center gap-2 px-3.5 py-2.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <Radio
             className={cn("size-3.5 shrink-0", running ? "text-chart-2" : "text-muted-foreground")}

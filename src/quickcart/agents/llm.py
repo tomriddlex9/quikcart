@@ -317,19 +317,53 @@ class GrokLLM:
         raise LLMError(f"grok returned an empty reply (model {self._model})")
 
 
+def cloud_llm_configured(settings: Any | None = None) -> bool:
+    """True when a cloud key matching ``assistant_provider`` is present."""
+    cfg = settings if settings is not None else get_settings()
+    provider = str(getattr(cfg, "assistant_provider", "grok") or "grok").lower()
+    if provider == "gemini":
+        return bool(getattr(cfg, "gemini_api_key", ""))
+    if provider == "grok":
+        return bool(getattr(cfg, "xai_api_key", ""))
+    return bool(getattr(cfg, "xai_api_key", "") or getattr(cfg, "gemini_api_key", ""))
+
+
 def select_agent_llm() -> LLMClient:
-    """Gemini, then Grok, then local Ollama — same priority as NL→SQL."""
+    """Grok by default, then Gemini (auto), then local Ollama."""
     settings = get_settings()
-    if settings.gemini_api_key:
-        return GeminiLLM(
-            model=settings.gemini_model,
-            base_url=settings.gemini_base_url,
-            api_key=settings.gemini_api_key,
-        )
-    if settings.xai_api_key:
+    provider = str(getattr(settings, "assistant_provider", "grok") or "grok").lower()
+
+    def _grok() -> GrokLLM:
         return GrokLLM(
             model=settings.xai_model,
             base_url=settings.xai_base_url,
             api_key=settings.xai_api_key,
         )
+
+    def _gemini() -> GeminiLLM:
+        return GeminiLLM(
+            model=settings.gemini_model,
+            base_url=settings.gemini_base_url,
+            api_key=settings.gemini_api_key,
+        )
+
+    if provider == "grok":
+        if settings.xai_api_key:
+            return _grok()
+    elif provider == "gemini":
+        if settings.gemini_api_key:
+            return _gemini()
+    else:  # auto: Grok first, then Gemini
+        if settings.xai_api_key:
+            return _grok()
+        if settings.gemini_api_key:
+            return _gemini()
+
+    require_cloud = bool(getattr(settings, "assistant_require_cloud", False))
+    if require_cloud:
+        need = {
+            "grok": "XAI_API_KEY",
+            "gemini": "GEMINI_API_KEY",
+        }.get(provider, "XAI_API_KEY or GEMINI_API_KEY")
+        raise LLMError(f"Cloud LLM required: set {need} (ASSISTANT_PROVIDER={provider})")
     return OllamaLLM()

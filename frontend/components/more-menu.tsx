@@ -14,8 +14,9 @@ import {
   Settings2,
   SunMoon,
 } from "lucide-react";
-import { LEARN, OPS, type NavItem } from "@/lib/nav";
+import { isNavActive, LEARN, OPS, type NavItem } from "@/lib/nav";
 import { openSimDock } from "@/lib/sim-dock";
+import { replayOpsTour } from "@/lib/ops-tour";
 import { useApiData } from "@/lib/use-api";
 import type { SystemStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -43,10 +44,6 @@ function writeList(key: string, values: string[]) {
   } catch {
     // Private browsing and quota errors leave the in-memory list in place.
   }
-}
-
-function isNavActive(href: string, pathname: string) {
-  return href === "/" ? pathname === "/" : pathname.startsWith(href);
 }
 
 function matches(item: NavItem, query: string) {
@@ -145,7 +142,15 @@ export function MoreMenu({
   const quickActions = useMemo(
     () => [
       { id: "sim", label: "Open simulator", hint: "start, stop, rate", run: () => openSimDock() },
-      { id: "theme", label: `Theme · ${themeLabel}`, hint: "cycle light, dark, system", run: onCycleTheme },
+      { id: "theme", label: `Theme · ${themeLabel}`, hint: "cycle light, dark, black, system", run: onCycleTheme },
+      {
+        id: "ops-tour",
+        label: "Replay welcome tour",
+        hint: "ops first-run",
+        run: () => {
+          replayOpsTour();
+        },
+      },
       { id: "prefs", label: "Preferences", hint: "team lens, density", run: onOpenPrefs },
       {
         id: "copy",
@@ -244,7 +249,7 @@ export function MoreMenu({
         aria-controls={menuId}
         onClick={() => setOpen((value) => !value)}
         className={cn(
-          "inline-flex items-center gap-1 rounded-md px-2 py-1 text-[12px] transition-colors",
+          "inline-flex items-center gap-1 rounded-md px-2 py-1 text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
           routeActive
             ? "bg-secondary text-foreground"
             : open
@@ -487,7 +492,7 @@ function PageGroup({
               aria-label={pinned ? `Unpin ${item.label}` : `Pin ${item.label}`}
               aria-pressed={pinned}
               onClick={() => onPin(item.href)}
-              className="rounded p-1 text-muted-foreground hover:text-foreground"
+              className="inline-flex size-8 items-center justify-center rounded text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               {pinned ? <PinOff className="size-3" /> : <Pin className="size-3" />}
             </button>

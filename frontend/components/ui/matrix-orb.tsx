@@ -1,8 +1,7 @@
 "use client";
 
-// Matrix Orb — a canvas dot-matrix sphere with four voice states. Written for this repo
-// and inspired by the Rare UI Matrix Orb (https://www.rareui.com); the prop surface follows
-// that component (state, level, levelSource, size, color, dots, labels, className).
+// Matrix Orb — a canvas dot-matrix sphere with four voice states
+// (idle / listening / thinking / speaking).
 //
 // - `levelSource` is polled inside requestAnimationFrame (use it with refs, not React state);
 //   `level` is the static fallback.

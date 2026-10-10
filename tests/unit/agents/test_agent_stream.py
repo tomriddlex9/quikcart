@@ -31,12 +31,14 @@ def _parse_sse(chunks: list[bytes]) -> list[tuple[str, dict]]:
 
 def test_chat_sse_emits_status_tool_token_done(monkeypatch, tmp_path) -> None:
     graph = build_graph(FakeLLM(), build_fake_registry(), artifacts_dir=tmp_path)
+    monkeypatch.setattr(service, "_native_loop", lambda: None)
     monkeypatch.setattr(service, "_runtime", lambda: (graph, FakeLLM()))
     frames = list(service.chat_sse("How is Store 8 performing?", session_id="s-sse"))
     events = _parse_sse(frames)
     names = [name for name, _ in events]
     assert names[0] == "status"
-    assert events[0][1]["stage"] == "classifying"
+    assert events[0][1]["stage"] == "listening"
+    assert any(data.get("stage") == "classifying" for n, data in events if n == "status")
     assert "tool" in names
     assert "token" in names
     assert names[-1] == "done"
@@ -55,6 +57,7 @@ def test_chat_sse_error_path_emits_done_degraded(monkeypatch) -> None:
     class _Llm:
         model = "fake-model"
 
+    monkeypatch.setattr(service, "_native_loop", lambda: None)
     monkeypatch.setattr(service, "_runtime", lambda: (_Boom(), _Llm()))
     events = _parse_sse(list(service.chat_sse("How is Store 8 performing?")))
     names = [name for name, _ in events]

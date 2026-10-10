@@ -1,7 +1,6 @@
 "use client";
 
 import { useTheme } from "next-themes";
-import { Laptop, Moon, Sun } from "lucide-react";
 import {
   Sheet,
   SheetContent,
@@ -30,12 +29,7 @@ import {
   type Radius,
   type TeamLens,
 } from "@/lib/prefs";
-
-const THEME_OPTIONS = [
-  { value: "light", label: "Light", icon: Sun },
-  { value: "dark", label: "Dark", icon: Moon },
-  { value: "system", label: "System", icon: Laptop },
-] as const;
+import { THEME_OPTIONS } from "@/lib/theme";
 
 export function PrefsSheet({
   open,

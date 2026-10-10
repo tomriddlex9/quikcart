@@ -50,7 +50,13 @@ export function JourneyPanel({
       ) : null}
       {step.link ? (
         <Link
-          href={withSpotlight(step.link)}
+          href={withSpotlight(
+            step.link,
+            step.title.toLowerCase().includes("attention") ||
+              step.title.toLowerCase().includes("need help")
+              ? "attention"
+              : undefined,
+          )}
           className="mt-4 inline-flex items-center gap-1 text-sm font-medium hover:underline"
         >
           Open this page <ArrowRight className="size-3.5" aria-hidden />

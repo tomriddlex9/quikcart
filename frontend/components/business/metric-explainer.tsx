@@ -1,12 +1,14 @@
-import { Info } from "lucide-react";
+import { GitBranch, Info } from "lucide-react";
+import { useProvenance } from "@/lib/business/provenance-context";
 import type { MetricValue } from "@/lib/business/types";
 
 /** Inline "What does this mean?" — plain description plus the current sentence. */
 export function MetricExplainer({
   metric,
 }: {
-  metric: Pick<MetricValue, "label" | "plain_description" | "explanation" | "is_partial">;
+  metric: MetricValue;
 }) {
+  const { openInspector, setEnabled } = useProvenance();
   return (
     <details className="group text-xs">
       <summary className="inline-flex cursor-pointer list-none items-center gap-1 text-muted-foreground transition-colors hover:text-foreground [&::-webkit-details-marker]:hidden">
@@ -19,6 +21,19 @@ export function MetricExplainer({
         {metric.is_partial ? (
           <p className="text-status-watch">Some of the data behind this is still being connected.</p>
         ) : null}
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+          data-testid="metric-how-calculated"
+          onClick={(e) => {
+            e.preventDefault();
+            setEnabled(true);
+            openInspector(metric);
+          }}
+        >
+          <GitBranch className="size-3" aria-hidden />
+          How is this calculated?
+        </button>
       </div>
     </details>
   );

@@ -661,13 +661,31 @@ class ToolSpec:
     scoped: bool = True  # honour the principal's store/city/category data scope
 
 
+# Business read-model tools first so Gemini sees them ahead of Spark/Gold tools.
+_BUSINESS_TOOL_ORDER = (
+    "get_briefing",
+    "get_metric",
+    "get_alerts",
+    "compare_stores",
+    "explain_metric_change",
+    "draft_action",
+)
+
+
+def _declaration_sort_key(spec: "ToolSpec") -> tuple[int, str]:
+    try:
+        return (0, f"{_BUSINESS_TOOL_ORDER.index(spec.name):02d}")
+    except ValueError:
+        return (1, spec.name)
+
+
 def build_registry(deps: ToolDeps) -> "ToolRegistry":
     """Wire the real tool implementations to the injected backends."""
 
     def wrap(model: type[BaseModel], impl: Callable[[Any], dict[str, Any]]) -> Callable:
         return lambda args: impl(deps, args)
 
-    specs = [
+    gold_specs = [
         ToolSpec("get_store_metrics", "Gold metrics for one store", GetStoreMetricsArgs,
                  wrap(GetStoreMetricsArgs, _get_store_metrics), permission="drill:store"),
         ToolSpec("get_kpi_summary", "Headline KPIs across all stores", GetKpiSummaryArgs,
@@ -697,10 +715,12 @@ def build_registry(deps: ToolDeps) -> "ToolRegistry":
                  RunReadonlySqlArgs, wrap(RunReadonlySqlArgs, _run_readonly_sql),
                  permission="copilot:sql_tool", surfaces=frozenset({"text"}), scoped=False),
     ]
+    specs: list[ToolSpec] = []
     if deps.business is not None:
         from quickcart.agents.business_tools import business_specs
 
         specs.extend(business_specs(deps.business))
+    specs.extend(gold_specs)
     registry = ToolRegistry({spec.name: spec for spec in specs})
     if deps.business is not None:
         registry.store_city_lookup = deps.business.store_city
@@ -748,7 +768,7 @@ class ToolRegistry:
     ) -> list[ToolSpec]:
         """Tools the caller may see: right surface and (if known) right permission."""
         visible: list[ToolSpec] = []
-        for spec in sorted(self._specs.values(), key=lambda s: s.name):
+        for spec in sorted(self._specs.values(), key=_declaration_sort_key):
             if channel not in spec.surfaces:
                 continue
             if (

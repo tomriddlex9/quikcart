@@ -31,7 +31,7 @@ export function RoleCardGroup<T extends string>({
             <label
               key={role.value}
               className={cn(
-                "flex cursor-pointer flex-col gap-0.5 rounded-xl border bg-card px-3 py-2.5 text-sm transition-colors",
+                "flex cursor-pointer flex-col gap-0.5 rounded-lg border bg-card px-3 py-2.5 text-sm transition-colors focus-within:ring-2 focus-within:ring-ring",
                 selected ? "border-foreground ring-1 ring-foreground/30" : "border-border hover:bg-secondary/60",
                 locked && "cursor-default",
               )}

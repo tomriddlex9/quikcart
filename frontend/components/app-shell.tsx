@@ -1,13 +1,18 @@
 "use client";
 
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
-import { Command, Laptop, Moon, Settings2, Sun, TerminalSquare } from "lucide-react";
+import { Command, Moon, Settings2, TerminalSquare } from "lucide-react";
 import { useEffect, useState, type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { useTheme } from "next-themes";
 import { signOut } from "@/app/login/actions";
+import { ExperienceSwitcher } from "@/components/experience-switcher";
+import { OpsTour } from "@/components/ops-tour";
 import { Pill } from "@/components/pill";
 import { Button } from "@/components/ui/button";
+
+const ChatDock = dynamic(() => import("@/components/assistant/chat-dock/chat-dock"), { ssr: false });
 import {
   CommandDialog,
   CommandEmpty,
@@ -22,13 +27,10 @@ import { PrefsSheet } from "@/components/prefs-sheet";
 import { MoreMenu } from "@/components/more-menu";
 import { ControlDock } from "@/components/sim/control-dock";
 import { DataModeProvider, useDataMode } from "@/lib/data-mode";
-import { businessRouteFor } from "@/lib/business-nav";
-import { LEARN, OPS, type NavItem } from "@/lib/nav";
+import { isNavActive, LEARN, OPS, type NavItem } from "@/lib/nav";
 import { usePrefs } from "@/lib/prefs";
+import { nextTheme, THEME_ICON, type ThemeValue } from "@/lib/theme";
 import { cn } from "@/lib/utils";
-
-const THEME_CYCLE = ["light", "dark", "system"] as const;
-const THEME_ICON = { light: Sun, dark: Moon, system: Laptop } as const;
 
 function publicDemoEnabled(flag: string | undefined): boolean {
   const value = flag ?? "";
@@ -77,14 +79,11 @@ export function AppShell({
   };
 
   const cycleTheme = () => {
-    const current = (theme as (typeof THEME_CYCLE)[number]) ?? "system";
-    const idx = THEME_CYCLE.indexOf(current);
-    const next = THEME_CYCLE[(idx + 1) % THEME_CYCLE.length];
-    setTheme(next);
+    setTheme(nextTheme(theme));
   };
 
   const ThemeIcon = mounted
-    ? THEME_ICON[(theme as (typeof THEME_CYCLE)[number]) ?? "system"]
+    ? THEME_ICON[(theme as ThemeValue) ?? "system"]
     : Moon;
 
   return (
@@ -123,7 +122,7 @@ function DataSourceToggle() {
           type="button"
           aria-pressed={source === value}
           className={cn(
-            "rounded-md px-2 py-1 text-xs font-medium",
+            "rounded-md px-2 py-1 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             source === value ? "bg-foreground text-background" : "text-muted-foreground",
           )}
           onClick={() => setSource(value)}
@@ -202,12 +201,7 @@ function ShellFrame({
             />
           </nav>
           <DataSourceToggle />
-          <Link
-            href={businessRouteFor(pathname)}
-            className="hidden rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground sm:inline"
-          >
-            Business view
-          </Link>
+          <ExperienceSwitcher current="ops" className="hidden sm:inline-flex" />
           <Button
             variant="outline"
             size="sm"
@@ -325,8 +319,26 @@ function ShellFrame({
       </CommandDialog>
 
       <ControlDock />
+      <OpsChatDock pathname={pathname} />
+      <OpsTour />
     </div>
   );
+}
+
+function OpsChatDock({ pathname }: { pathname: string }) {
+  const [persona, setPersona] = useState("ops_manager");
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/qc-api/v1/auth/me", { signal: controller.signal, cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body: { persona?: string } | null) => {
+        if (body?.persona) setPersona(body.persona);
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, []);
+  const onAgent = pathname === "/agent" || pathname.startsWith("/agent/");
+  return <ChatDock experience="ops" persona={persona} forceHideFab={onAgent} />;
 }
 
 function MobileNavRow({
@@ -361,13 +373,13 @@ function TopLink({
   pathname: string;
   compact?: boolean;
 }) {
-  const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+  const active = isNavActive(item.href, pathname);
   return (
     <Link
       href={item.href}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "shrink-0 rounded-md px-2 py-1 text-[12px] transition-colors",
+        "shrink-0 rounded-md px-2 py-1 text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         active ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground",
         compact && "text-[11px]",
       )}
@@ -389,7 +401,7 @@ function NavLinks({
   return (
     <div className="space-y-0.5">
       {items.map(({ href, label, icon: Icon }) => {
-        const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
+        const active = isNavActive(href, pathname);
         return (
           <Link
             key={href}
@@ -397,7 +409,7 @@ function NavLinks({
             aria-current={active ? "page" : undefined}
             title={compact ? label : undefined}
             className={cn(
-              "flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] transition-colors",
+              "flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               active
                 ? "bg-secondary text-foreground"
                 : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",

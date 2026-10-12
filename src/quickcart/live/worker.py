@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import threading
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,7 @@ from quickcart.logging import configure_logging
 
 log = structlog.get_logger(__name__)
 TIMER_INTERVAL_SECONDS = 90.0
+SILVER_RETRY_SECONDS = 30.0
 
 
 def _now() -> str:
@@ -156,7 +158,15 @@ def _process_progress(
     order_query: Any,
     cdc_query: Any,
     seen_batches: dict[str, set[int]],
+    silver_hold: dict[str, float] | None = None,
 ) -> None:
+    """Advance bronze heartbeats and apply CDC to silver.
+
+    A silver merge failure is recorded and retried after ``SILVER_RETRY_SECONDS``.
+    It must not propagate: re-raising used to stop the Spark context and freeze
+    Gold and the serving snapshot.
+    """
+    hold = silver_hold if silver_hold is not None else {}
     for progress in order_query.recentProgress:
         batch_id = int(_progress_value(progress, "batchId", -1))
         if batch_id in seen_batches["orders"]:
@@ -175,6 +185,9 @@ def _process_progress(
         if batch_id in seen_batches["cdc"]:
             continue
         rows = int(_progress_value(progress, "numInputRows", 0))
+        now = time.monotonic()
+        if now < hold.get("cdc_silver", 0.0):
+            continue
         _success(
             "cdc_bronze",
             rows_in=rows,
@@ -192,7 +205,8 @@ def _process_progress(
             )
         except Exception as error:
             _failure("cdc_silver", error, batch_id=batch_id)
-            raise
+            hold["cdc_silver"] = time.monotonic() + SILVER_RETRY_SECONDS
+            continue
         seen_batches["cdc"].add(batch_id)
 
 
@@ -212,6 +226,7 @@ def run_worker(*, once: bool = False) -> int:
     timer_errors: list[BaseException] = []
     timer: threading.Thread | None = None
     seen_batches = {"orders": set(), "cdc": set()}
+    silver_hold: dict[str, float] = {}
 
     try:
         _success("worker", detail={"status": "starting"})
@@ -230,7 +245,7 @@ def run_worker(*, once: bool = False) -> int:
         if once:
             order_query.processAllAvailable()
             cdc_query.processAllAvailable()
-            _process_progress(spark, root, order_query, cdc_query, seen_batches)
+            _process_progress(spark, root, order_query, cdc_query, seen_batches, silver_hold)
             _run_timer_cycle(spark, root)
             _success("worker", detail={"status": "once_complete"})
             return 0
@@ -245,7 +260,7 @@ def run_worker(*, once: bool = False) -> int:
         _success("worker", detail={"status": "running"})
         while not stop.is_set():
             spark.streams.awaitAnyTermination(1)
-            _process_progress(spark, root, order_query, cdc_query, seen_batches)
+            _process_progress(spark, root, order_query, cdc_query, seen_batches, silver_hold)
             if not order_query.isActive:
                 error = order_query.exception() or RuntimeError(
                     "the order-events streaming query terminated unexpectedly"

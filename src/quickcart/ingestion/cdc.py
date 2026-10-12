@@ -13,13 +13,23 @@ tombstone-style `_deleted` flag alternative is noted in docs/learning/phase-8.md
 """
 
 import argparse
+from collections.abc import Sequence
 from pathlib import Path
 
 import structlog
 from delta import DeltaTable
 from pyspark.sql import DataFrame, SparkSession, Window
 from pyspark.sql import functions as F
-from pyspark.sql.types import LongType, StringType, StructField, StructType
+from pyspark.sql.types import (
+    BooleanType,
+    DecimalType,
+    LongType,
+    NumericType,
+    StringType,
+    StructField,
+    StructType,
+    TimestampType,
+)
 
 from quickcart.config.settings import get_settings
 from quickcart.lakehouse.common.schemas import ORDERS_SCHEMA
@@ -55,6 +65,55 @@ SOURCE_SCHEMA = StructType(
 )
 
 SILVER_FOR_CDC = {"bronze_orders_cdc": "silver_orders"}
+
+# Batch silver keeps bronze metadata that the CDC payload does not carry.
+# Inserts must fill the non-null columns; updates must not reference them.
+_CDC_METADATA_SQL = {
+    "_ingested_at": "current_timestamp()",
+    "_source_system": "'debezium'",
+    "_source_file": "'cdc'",
+    "_schema_version": "1",
+    "_ingestion_date": "date_format(current_timestamp(), 'yyyy-MM-dd')",
+}
+
+
+def _insert_expression(field: StructField, source_columns: set[str]) -> str:
+    if field.name in source_columns:
+        return f"s.{field.name}"
+    if field.name in _CDC_METADATA_SQL:
+        return _CDC_METADATA_SQL[field.name]
+    sql_type = field.dataType.simpleString()
+    if field.nullable:
+        return f"CAST(NULL AS {sql_type})"
+    if isinstance(field.dataType, BooleanType):
+        return "false"
+    if isinstance(field.dataType, TimestampType):
+        return "current_timestamp()"
+    if isinstance(field.dataType, (NumericType, DecimalType)):
+        return f"CAST(0 AS {sql_type})"
+    return "''"
+
+
+def silver_merge_column_maps(
+    source_columns: Sequence[str],
+    target_schema: StructType,
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Build Delta MERGE clauses that tolerate target-only metadata columns.
+
+    ``whenMatchedUpdateAll`` fails when silver was written by the batch load
+    and still has ``_ingested_at`` (and the other bronze metadata columns)
+    that the CDC order payload does not contain.
+    """
+    source = set(source_columns)
+    update_set = {
+        field.name: f"s.{field.name}" for field in target_schema.fields if field.name in source
+    }
+    if not update_set:
+        raise ValueError("CDC upsert shares no columns with the silver table")
+    insert_values = {
+        field.name: _insert_expression(field, source) for field in target_schema.fields
+    }
+    return update_set, insert_values
 
 
 def normalize_debezium(batch: DataFrame) -> DataFrame:
@@ -161,11 +220,14 @@ def apply_cdc_to_silver(
         return metrics
     if upsert_rows.head(1):
         target = DeltaTable.forPath(spark, str(silver_path))
+        update_set, insert_values = silver_merge_column_maps(
+            upsert_rows.columns, target.toDF().schema
+        )
         (
             target.alias("t")
             .merge(upsert_rows.alias("s"), "t.order_id = s.order_id")
-            .whenMatchedUpdateAll()
-            .whenNotMatchedInsertAll()
+            .whenMatchedUpdate(set=update_set)
+            .whenNotMatchedInsert(values=insert_values)
             .execute()
         )
         history = target.history(1).first()["operationMetrics"] or {}

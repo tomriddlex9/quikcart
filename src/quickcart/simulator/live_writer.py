@@ -233,8 +233,8 @@ def load_reference_data(conn: psycopg.Connection) -> ReferenceData:
 
     if not store_ids:
         raise RuntimeError("live writer requires at least one active store")
-    if not product_ids or not inventory:
-        raise RuntimeError("live writer requires products with positive inventory")
+    if not product_ids:
+        raise RuntimeError("live writer requires at least one active product")
     if not customers:
         raise RuntimeError("live writer requires at least one active customer")
     if not prices:
@@ -431,6 +431,103 @@ def maybe_create_support_ticket(
     producer.flush()
 
 
+def replenish_depleted_inventory(
+    conn: psycopg.Connection,
+    reference: ReferenceData,
+    rng: np.random.Generator,
+) -> int:
+    """Receipt priced SKUs whose on-hand quantity has hit zero.
+
+    The in-memory map only tracks positive quantities. Once every priced SKU
+    reaches zero, churn used to return immediately and order creation stopped
+    even though ``inventory_churn_delta`` would restock a zero row. This loads
+    those priced rows, applies that receipt, and puts them back in the map.
+    """
+    with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            """
+            SELECT i.store_id, i.product_id, i.on_hand_qty
+            FROM inventory AS i
+            WHERE i.on_hand_qty <= 0
+              AND EXISTS (
+                  SELECT 1
+                  FROM product_prices AS p
+                  WHERE p.product_id = i.product_id
+                    AND (p.store_id = i.store_id OR p.store_id IS NULL)
+                    AND p.valid_from <= now()
+                    AND (p.valid_to IS NULL OR p.valid_to > now())
+              )
+            ORDER BY i.store_id, i.product_id
+            """
+        )
+        depleted = cur.fetchall()
+    if not depleted:
+        return 0
+
+    store_ids: list[int] = []
+    product_ids: list[int] = []
+    deltas: list[int] = []
+    for row in depleted:
+        delta = behavior.inventory_churn_delta(rng, int(row["on_hand_qty"]))
+        if delta <= 0:
+            continue
+        store_ids.append(int(row["store_id"]))
+        product_ids.append(int(row["product_id"]))
+        deltas.append(delta)
+    if not deltas:
+        return 0
+
+    changed_at = datetime.now(UTC)
+    with conn.transaction(), conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            """
+            WITH incoming AS (
+                SELECT *
+                FROM unnest(%s::bigint[], %s::bigint[], %s::int[])
+                    AS t(store_id, product_id, quantity_delta)
+            ),
+            updated AS (
+                UPDATE inventory AS i
+                SET on_hand_qty = i.on_hand_qty + t.quantity_delta,
+                    updated_at = %s
+                FROM incoming AS t
+                WHERE i.store_id = t.store_id
+                  AND i.product_id = t.product_id
+                  AND i.on_hand_qty <= 0
+                RETURNING i.store_id, i.product_id, i.on_hand_qty, t.quantity_delta
+            ),
+            movements AS (
+                INSERT INTO inventory_movements (
+                    store_id, product_id, movement_type, quantity_delta,
+                    reference_type, reference_id, occurred_at, created_at
+                )
+                SELECT
+                    store_id,
+                    product_id,
+                    'RECEIPT',
+                    quantity_delta,
+                    'SIM_CHURN',
+                    store_id::text || ':' || product_id::text,
+                    %s,
+                    %s
+                FROM updated
+                RETURNING store_id, product_id
+            )
+            SELECT u.store_id, u.product_id, u.on_hand_qty
+            FROM updated AS u
+            JOIN movements AS m USING (store_id, product_id)
+            """,
+            (store_ids, product_ids, deltas, changed_at, changed_at, changed_at),
+        )
+        applied = cur.fetchall()
+    for row in applied:
+        key = (int(row["store_id"]), int(row["product_id"]))
+        reference.inventory[key] = int(row["on_hand_qty"])
+    if applied:
+        log.info("live_writer.inventory_replenished", rows=len(applied))
+    return len(applied)
+
+
 def apply_inventory_churn_tick(
     conn: psycopg.Connection,
     reference: ReferenceData,
@@ -438,7 +535,10 @@ def apply_inventory_churn_tick(
     *,
     inventory_churn: float,
 ) -> None:
-    if inventory_churn <= 0 or not reference.inventory:
+    if inventory_churn <= 0:
+        return
+    if not reference.inventory:
+        replenish_depleted_inventory(conn, reference, rng)
         return
     if float(rng.random()) >= inventory_churn:
         return
@@ -1143,6 +1243,10 @@ async def run_live(
     rider_rng = np.random.default_rng(int(rng.integers(0, np.iinfo(np.int64).max)))
     with connect_factory() as conn:
         reference = load_reference_data(conn)
+        if not reference.inventory:
+            replenish_depleted_inventory(conn, reference, rng)
+    if not reference.inventory:
+        raise RuntimeError("live writer requires products with positive inventory")
     delay = 1.0 / rate_per_sec
     active_control = ActiveSimControl()
     created = 0
@@ -1215,7 +1319,9 @@ async def run_live(
                     )
                 except StockUnavailable:
                     log.warning("live_writer.stock_refresh")
-                    reference = load_reference_data(conn)
+                    replenished = replenish_depleted_inventory(conn, reference, rng)
+                    if replenished == 0:
+                        reference = load_reference_data(conn)
                     continue
             transition_rng = np.random.default_rng(
                 int(rng.integers(0, np.iinfo(np.int64).max))

@@ -61,6 +61,47 @@ def test_scoring_only_writes_unseen_order_ids(spark_session, tmp_path) -> None:
     assert sorted(row.order_id for row in rows.select("order_id").collect()) == [1, 2]
 
 
+def test_silver_apply_failure_stays_retryable(tmp_path, monkeypatch) -> None:
+    from quickcart.live import worker
+
+    def explode(*_args, **_kwargs):
+        raise RuntimeError("Cannot resolve _ingested_at in UPDATE clause")
+
+    calls = {"n": 0}
+
+    def explode_and_count(*args, **kwargs):
+        calls["n"] += 1
+        explode(*args, **kwargs)
+
+    monkeypatch.setattr(worker, "apply_cdc_to_silver", explode_and_count)
+    heartbeats = []
+    monkeypatch.setattr(worker, "write_heartbeat", heartbeats.append)
+
+    class _Query:
+        def __init__(self, progress):
+            self.recentProgress = progress
+
+    seen = {"orders": set(), "cdc": set()}
+    hold: dict[str, float] = {}
+    progress = [{"batchId": 4, "numInputRows": 2}]
+    worker._process_progress(
+        None,
+        tmp_path,
+        _Query([]),
+        _Query(progress),
+        seen,
+        hold,
+    )
+
+    assert seen["cdc"] == set()
+    assert hold["cdc_silver"] > 0
+    silver_beats = [beat for beat in heartbeats if beat.stage == "cdc_silver"]
+    assert silver_beats and "_ingested_at" in (silver_beats[-1].error or "")
+
+    worker._process_progress(None, tmp_path, _Query([]), _Query(progress), seen, hold)
+    assert calls["n"] == 1
+
+
 def test_timer_step_is_callable_in_isolation(spark_session, tmp_path, monkeypatch) -> None:
     from quickcart.live import worker
 

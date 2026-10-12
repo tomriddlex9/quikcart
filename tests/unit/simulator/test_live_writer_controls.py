@@ -12,7 +12,12 @@ from quickcart.simulator.live_writer import (
     emit_rider_location_ping,
     load_reference_data,
     maybe_create_support_ticket,
+    replenish_depleted_inventory,
 )
+
+
+class _Rollback(Exception):
+    """Abort the connection context so a stockout fixture is not committed."""
 
 
 class _CaptureProducer:
@@ -135,6 +140,60 @@ def test_apply_inventory_churn_tick_writes_movement(seeded_db: object) -> None:
     assert movement is not None
     assert isinstance(movement[1], int)
     assert after_qty != before_qty or movement[1] != 0
+
+
+@pytest.mark.unit
+def test_replenish_depleted_inventory_receipts_zero_stock(seeded_db: object) -> None:
+    try:
+        with connect() as conn, conn.transaction():
+            conn.execute("UPDATE inventory SET on_hand_qty = 0")
+            reference = load_reference_data(conn)
+            assert reference.inventory == {}
+            restored = replenish_depleted_inventory(
+                conn,
+                reference,
+                np.random.default_rng(24),
+            )
+            assert restored > 0
+            assert len(reference.inventory) == restored
+            assert all(qty > 0 for qty in reference.inventory.values())
+            movement = conn.execute(
+                """
+                SELECT movement_type, quantity_delta
+                FROM inventory_movements
+                WHERE reference_type = 'SIM_CHURN'
+                ORDER BY movement_id DESC
+                LIMIT 1
+                """
+            ).fetchone()
+            assert movement is not None
+            assert movement[0] == "RECEIPT"
+            assert int(movement[1]) > 0
+            on_hand = conn.execute("SELECT min(on_hand_qty) FROM inventory").fetchone()
+            assert on_hand is not None
+            assert int(on_hand[0]) > 0
+            raise _Rollback()
+    except _Rollback:
+        return
+
+
+@pytest.mark.unit
+def test_churn_tick_replenishes_when_the_memory_map_is_empty(seeded_db: object) -> None:
+    try:
+        with connect() as conn, conn.transaction():
+            conn.execute("UPDATE inventory SET on_hand_qty = 0")
+            reference = load_reference_data(conn)
+            apply_inventory_churn_tick(
+                conn,
+                reference,
+                np.random.default_rng(25),
+                inventory_churn=1.0,
+            )
+            assert reference.inventory
+            assert all(qty > 0 for qty in reference.inventory.values())
+            raise _Rollback()
+    except _Rollback:
+        return
 
 
 @pytest.mark.unit

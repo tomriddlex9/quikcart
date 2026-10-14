@@ -7,16 +7,19 @@ no PostgreSQL, no Spark.
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 
 import pytest
 
 from quickcart.agents import service
+from quickcart.agents.business_tools import BusinessDeps
 from quickcart.agents.cards import hydrate_answer
 from quickcart.agents.eval import KeywordToolLLM, load_cases, run_suite
 from quickcart.agents.gemini_tools import ModelStep, ToolCall
 from quickcart.agents.loop import NativeToolLoop, SentenceGate, SummaryStreamer
 from quickcart.agents.tools import (
     ToolArgumentError,
+    ToolDeps,
     ToolError,
     ToolPermissionError,
     ToolRegistry,
@@ -26,6 +29,8 @@ from quickcart.agents.tools import (
     current_tool_context,
     reset_tool_cache,
 )
+from quickcart.api.business.readmodel import ReadModel
+from quickcart.api.business.service import BusinessService
 from tests.unit.agents.business_fixtures import (
     FakeProposals,
     ScriptedToolLLM,
@@ -111,6 +116,36 @@ def test_explain_metric_change_has_drivers_and_movers() -> None:
     assert {d["label"] for d in view["drivers"]} == {"Orders", "Average basket (AOV)"}
     store = make_registry().execute("explain_metric_change", {"metric": "sales_gmv", "store_id": 1})
     assert "metric:sales_gmv:store:1" in store["facts"] and "movers:sales_gmv" not in store["facts"]
+
+
+def test_briefing_cites_the_same_live_window_as_operations() -> None:
+    from tests.unit.business.fakes import FakeOpsConn
+
+    reset_tool_cache()
+    try:
+        @contextmanager
+        def open_service():
+            service_rm = BusinessService(ReadModel(FakeOpsConn(serving_missing=True)))  # type: ignore[arg-type]
+            yield service_rm
+
+        registry = build_registry(ToolDeps(business=BusinessDeps(open_service=open_service)))
+        briefing = registry.execute("get_briefing", {})
+        orders = briefing["facts"]["metric:live_orders_1m:all"]
+        gmv = briefing["facts"]["metric:live_gmv_15m:all"]
+        assert orders["display"] == "2"
+        assert orders["value"] == 2
+        assert gmv["display"] == "₹150"
+        assert "Same figure as Live operations." in orders["explanation"]
+        view = next(f for f in briefing["model_view"]["facts"] if f["ref"] == orders["ref"])
+        assert view["value"] == "2"
+        kpis = registry.execute("get_kpi_summary", {})
+        assert kpis["evidence"]["orders_placed"] == 4
+        assert kpis["evidence"]["gmv"] == 300.0
+        assert kpis["evidence"]["live"]["orders_15m"] == 8
+        assert kpis["evidence"]["live"]["active_deliveries"] == 3
+        assert kpis["evidence"]["source"] == "live_sql"
+    finally:
+        reset_tool_cache()
 
 
 def test_briefing_and_alerts() -> None:

@@ -29,7 +29,7 @@ export const METRIC_LINKS: Record<string, string> = {
 
 export function useTodayHome() {
   const { displayName, pinned, persona, personaView, scopes } = useBusiness();
-  const today = useBusinessData<TodayResponse>("/today");
+  const today = useBusinessData<TodayResponse>("/today", { refreshMs: 15_000 });
   const stores = useBusinessData<StoreScorecardsResponse>("/stores/scorecards");
   const money = useBusinessData<MoneyResponse>("/money");
   const targets = useBusinessData<TargetsResponse>("/targets");

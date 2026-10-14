@@ -9,12 +9,14 @@ import { MorningBriefing } from "@/components/business/morning-briefing";
 import { QuickQuestionChips } from "@/components/business/quick-question-chips";
 import { ResumeJourneyBanner } from "@/components/business/resume-journey-banner";
 import { Spotlight } from "@/components/business/spotlight";
+import { METRIC_LINKS } from "@/components/business/homes/use-today-home";
 import { StoreLeaderboard } from "@/components/business/store-leaderboard";
 import { TodayVsUsualChart } from "@/components/business/today-vs-usual-chart";
-import { METRIC_LINKS } from "@/components/business/homes/use-today-home";
+import { KpiCard } from "@/components/kpi-card";
 import { firstName } from "@/lib/business/format";
 import { useProvenance } from "@/lib/business/provenance-context";
-import type { MetricValue, StoreScorecard, TodayResponse } from "@/lib/business/types";
+import type { LiveWindow, MetricValue, StoreScorecard, TodayResponse } from "@/lib/business/types";
+import { formatCompactINR, formatINR, formatNumber, formatPercent } from "@/lib/format";
 
 export function ProvenanceBanner() {
   const { enabled } = useProvenance();
@@ -44,8 +46,45 @@ export function HomeChrome({
       <ResumeJourneyBanner />
       <ProvenanceBanner />
       <MorningBriefing name={firstName(displayName)} summary={data.summary} meta={data.meta} />
+      <LiveOpsStrip live={data.live} />
       {children}
     </div>
+  );
+}
+
+export function LiveOpsStrip({ live }: { live: LiveWindow | null | undefined }) {
+  if (!live) return null;
+  return (
+    <section aria-label="Live operations" className="space-y-2" data-testid="live-ops-strip">
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-medium">Live operations</h2>
+        <Link href="/live" className="text-xs text-muted-foreground hover:text-foreground">
+          Open live view
+        </Link>
+      </div>
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <KpiCard
+          label="Orders / min"
+          value={formatNumber(live.orders_1m)}
+          hint={`${formatNumber(live.orders_15m)} in the last 15m`}
+        />
+        <KpiCard
+          label="GMV · 15 min"
+          value={formatCompactINR(live.gmv_15m)}
+          hint={`${formatINR(live.gmv_1m)} in the last minute`}
+        />
+        <KpiCard
+          label="Active deliveries"
+          value={formatNumber(live.active_deliveries)}
+          hint="currently in motion"
+        />
+        <KpiCard
+          label="Payment failures"
+          value={formatPercent(live.payment_failure_rate_15m)}
+          hint="last 15 minutes"
+        />
+      </div>
+    </section>
   );
 }
 

@@ -405,10 +405,38 @@ def create_app(
 
     # --- analytics (Gold via readers) -------------------------------------------
     @app.get("/api/v1/overview/kpis")
-    def overview_kpis(readers: ReadersDep) -> dict[str, Any]:
-        from quickcart.api.gold_cache import gold_cache_for
+    def overview_kpis(request: Request) -> dict[str, Any]:
+        """Day KPIs from the same business read as ``/api/v1/b/today``.
 
-        return gold_cache_for(readers).kpi_summary()
+        The six keys stay stable for the operations home. Values are the latest
+        order day, so this route and the business console cannot drift.
+        """
+        from quickcart.api.business.readmodel import ReadModel
+        from quickcart.api.business.service import BusinessService
+        from quickcart.db.connection import connect as default_connect
+
+        factory = getattr(request.app.state, "connect_factory", default_connect)
+        try:
+            conn = factory()
+        except psycopg.OperationalError as exc:
+            raise HTTPException(status_code=503, detail="The data store is not reachable.") from exc
+        with conn:
+            conn.read_only = True
+            today = BusinessService(ReadModel(conn)).today()
+        values = {metric.key: metric.value for metric in (*today.headline, *today.more)}
+
+        def number(key: str) -> float:
+            raw = values.get(key)
+            return 0.0 if raw is None else float(raw)
+
+        return {
+            "gmv": number("sales_gmv"),
+            "orders_placed": int(number("orders")),
+            "cancellation_rate": number("cancel_rate"),
+            "late_delivery_rate": number("late_rate"),
+            "products_below_reorder": int(number("stockout_risk_count")),
+            "active_customers": int(number("active_customers")),
+        }
 
     @app.get("/api/v1/trends/orders")
     def orders_trend(readers: ReadersDep) -> list[dict[str, Any]]:

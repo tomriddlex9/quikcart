@@ -16,6 +16,7 @@ from quickcart.api.gold_cache import GoldReadersTTLCache
 from quickcart.api.live import (
     _sse_events,
     build_live_snapshot,
+    query_live_window,
     register_live_routes,
 )
 from tests.unit.api.fakes import FakeConnectFactory
@@ -118,6 +119,20 @@ def test_build_live_snapshot_has_contract_shape_and_uses_read_only_connection() 
     }
     assert factory.last.read_only is True
     assert factory.last.closed is True
+
+
+def test_query_live_window_matches_the_snapshot_counters() -> None:
+    factory = FakeConnectFactory(responder=_snapshot_responder)
+    snapshot = build_live_snapshot(
+        connect_factory=factory,
+        generated_at=datetime(2026, 9, 24, 21, 1, tzinfo=UTC),
+    )
+
+    with factory() as conn:
+        window = query_live_window(conn)
+
+    for key, value in window.items():
+        assert getattr(snapshot, key) == value
 
 
 def test_snapshot_route_returns_live_snapshot() -> None:

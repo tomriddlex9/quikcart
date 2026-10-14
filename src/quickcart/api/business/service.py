@@ -22,6 +22,7 @@ from quickcart.api.business.schemas import (
     DeliveryStoreRow,
     JourneyStep,
     JourneySummary,
+    LiveWindow,
     Meta,
     MetricDefinition,
     MetricExplainResponse,
@@ -99,6 +100,10 @@ class BusinessService:
 
     def meta(self, note: str | None = None) -> Meta:
         as_of = self._rm.as_of()
+        if note is None:
+            note = self._rm.freshness_note()
+        if note is None and as_of.day != self._now.date():
+            note = f"Showing the latest day with orders ({as_of.day:%d %b %Y})."
         return Meta(
             as_of_day=as_of.day,
             is_today=as_of.day == self._now.date(),
@@ -106,13 +111,7 @@ class BusinessService:
             snapshot_run_id=as_of.snapshot_run_id,
             snapshot_finished_at=as_of.finished_at,
             generated_at=self._now,
-            note=note
-            if note is not None
-            else (
-                None
-                if as_of.day == self._now.date()
-                else f"Showing the latest day with orders ({as_of.day:%d %b %Y})."
-            ),
+            note=note,
         )
 
     def metric_value(
@@ -178,8 +177,19 @@ class BusinessService:
                 f"{f', {bad} urgent' if bad else ''}."
             )
         return TodayResponse(
-            meta=self.meta(), summary=summary, headline=headline, more=more, attention=attention
+            meta=self.meta(),
+            summary=summary,
+            headline=headline,
+            more=more,
+            attention=attention,
+            live=self._live_window(),
         )
+
+    def _live_window(self) -> LiveWindow | None:
+        raw = self._rm.live_window()
+        if raw is None:
+            return None
+        return LiveWindow(generated_at=self._now, **raw)
 
     def _attention(self) -> list[AttentionItem]:
         items: list[AttentionItem] = []

@@ -37,7 +37,7 @@ class Cursor:
         return self._rows
 
     def fetchone(self) -> Any:
-        return self._rows[0]
+        return self._rows[0] if self._rows else None
 
 
 class Tx:
@@ -57,11 +57,20 @@ class FakeOpsConn:
 
     read_only = False
 
-    def __init__(self, *, fail_on: str | None = None, serving_missing: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        fail_on: str | None = None,
+        serving_missing: bool = False,
+        snapshot_rows: list[dict[str, Any]] | None = None,
+        orders_after: list[dict[str, Any]] | None = None,
+    ) -> None:
         self.statements: list[str] = []
         self.bulk: list[tuple[str, list[Any]]] = []
         self.fail_on = fail_on
         self.serving_missing = serving_missing
+        self.snapshot_rows = [] if snapshot_rows is None else snapshot_rows
+        self.orders_after = [] if orders_after is None else orders_after
 
     def transaction(self) -> Tx:
         return Tx()
@@ -74,6 +83,25 @@ class FakeOpsConn:
             raise RuntimeError("boom")
         if self.serving_missing and sql.lstrip().startswith("SELECT") and "serving." in sql:
             raise psycopg.errors.UndefinedTable("relation serving.snapshot_runs does not exist")
+        if "AS orders_1m" in sql and "FROM orders" in sql:
+            return [
+                {
+                    "orders_1m": 2,
+                    "orders_15m": 8,
+                    "orders_60m": 20,
+                    "gmv_1m": Decimal("40"),
+                    "gmv_15m": Decimal("150"),
+                    "gmv_60m": Decimal("400"),
+                }
+            ]
+        if "failure_rate" in sql:
+            return [{"failure_rate": Decimal("0.1")}]
+        if "active_deliveries" in sql:
+            return [{"active_deliveries": 3}]
+        if "serving.snapshot_runs" in sql and "status = 'succeeded'" in sql:
+            return list(self.snapshot_rows)
+        if "placed_at > %(" in sql:
+            return list(self.orders_after)
         if "INSERT INTO serving.snapshot_runs" in sql:
             return [(7,)]
         if "max((placed_at" in sql:

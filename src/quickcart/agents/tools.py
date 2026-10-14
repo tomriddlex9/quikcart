@@ -454,7 +454,38 @@ def _get_store_metrics(deps: ToolDeps, args: GetStoreMetricsArgs) -> dict[str, A
     return _ok(f"store {args.store_id}: {len(latest)} latest hourly metric rows", facts)
 
 
+def _kpi_summary_from_business(deps: ToolDeps) -> dict[str, Any] | None:
+    """Map the business day onto the headline KPI keys, including the live window."""
+    if deps.business is None:
+        return None
+    with deps.business.open_service() as svc:
+        today = svc.today()
+    values = {metric.key: metric.value for metric in (*today.headline, *today.more)}
+    facts: dict[str, Any] = {
+        "type": "metric",
+        "scope": "all_stores",
+        "gmv": values.get("sales_gmv"),
+        "orders_placed": values.get("orders"),
+        "cancellation_rate": values.get("cancel_rate"),
+        "late_delivery_rate": values.get("late_rate"),
+        "products_below_reorder": values.get("stockout_risk_count"),
+        "active_customers": values.get("active_customers"),
+        "source": today.meta.source,
+        "as_of_day": today.meta.as_of_day,
+    }
+    if today.live is not None:
+        facts["live"] = today.live.model_dump(mode="json")
+    return _ok("headline KPIs across all stores", facts)
+
+
 def _get_kpi_summary(deps: ToolDeps, args: GetKpiSummaryArgs) -> dict[str, Any]:
+    if deps.business is not None:
+        try:
+            summary = _kpi_summary_from_business(deps)
+        except ToolError:
+            summary = None
+        if summary is not None:
+            return summary
     if deps.readers is None:
         raise ToolError("gold readers backend not configured")
     facts = {"type": "metric", "scope": "all_stores", **deps.readers.kpi_summary()}
@@ -688,8 +719,14 @@ def build_registry(deps: ToolDeps) -> "ToolRegistry":
     gold_specs = [
         ToolSpec("get_store_metrics", "Gold metrics for one store", GetStoreMetricsArgs,
                  wrap(GetStoreMetricsArgs, _get_store_metrics), permission="drill:store"),
-        ToolSpec("get_kpi_summary", "Headline KPIs across all stores", GetKpiSummaryArgs,
-                 wrap(GetKpiSummaryArgs, _get_kpi_summary), permission="kpi:read"),
+        ToolSpec(
+            "get_kpi_summary",
+            "Headline KPIs for the latest order day — the same figures as the business "
+            "console, plus the Live operations window when the business store is available.",
+            GetKpiSummaryArgs,
+            wrap(GetKpiSummaryArgs, _get_kpi_summary),
+            permission="kpi:read",
+        ),
         ToolSpec("get_inventory_risk", "SKUs below reorder point / low stock cover",
                  GetInventoryRiskArgs, wrap(GetInventoryRiskArgs, _get_inventory_risk),
                  permission="kpi:read"),

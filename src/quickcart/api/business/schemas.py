@@ -29,6 +29,20 @@ class Meta(BaseModel):
     note: str | None = None
 
 
+class LiveWindow(BaseModel):
+    """Rolling counters from the same SQL as ``GET /api/v1/live/snapshot``."""
+
+    generated_at: datetime
+    orders_1m: int = 0
+    orders_15m: int = 0
+    orders_60m: int = 0
+    gmv_1m: float = 0.0
+    gmv_15m: float = 0.0
+    gmv_60m: float = 0.0
+    payment_failure_rate_15m: float = 0.0
+    active_deliveries: int = 0
+
+
 class MetricValue(BaseModel):
     key: str
     label: str
@@ -64,6 +78,7 @@ class TodayResponse(BaseModel):
     headline: list[MetricValue]
     more: list[MetricValue]
     attention: list[AttentionItem]
+    live: LiveWindow | None = None
 
 
 class StoreScorecard(BaseModel):

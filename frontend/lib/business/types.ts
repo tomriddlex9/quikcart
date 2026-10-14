@@ -43,12 +43,25 @@ export interface AttentionItem {
   store_name: string | null;
 }
 
+export interface LiveWindow {
+  generated_at: string;
+  orders_1m: number;
+  orders_15m: number;
+  orders_60m: number;
+  gmv_1m: number;
+  gmv_15m: number;
+  gmv_60m: number;
+  payment_failure_rate_15m: number;
+  active_deliveries: number;
+}
+
 export interface TodayResponse {
   meta: Meta;
   summary: string;
   headline: MetricValue[];
   more: MetricValue[];
   attention: AttentionItem[];
+  live?: LiveWindow | null;
 }
 
 export interface StoreScorecard {

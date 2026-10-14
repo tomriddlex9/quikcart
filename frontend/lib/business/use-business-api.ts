@@ -18,7 +18,7 @@ export function businessApiBase(): string {
   return `${apiRoot()}/b`;
 }
 
-const TIMEOUT_MS = 8_000;
+const TIMEOUT_MS = 20_000;
 
 export type BusinessMode = "live" | "demo";
 
@@ -78,13 +78,15 @@ export interface BusinessDataOptions<T> {
   general?: boolean;
   /** Sample payload used in demo mode or when the API is down (general endpoints only). */
   fixture?: () => T;
+  /** Refetch on this interval. Keeps the current payload on screen while the next read is in flight. */
+  refreshMs?: number;
 }
 
 export function useBusinessData<T>(
   path: string | null,
   options: BusinessDataOptions<T> = {},
 ): BusinessData<T> {
-  const { general = false, fixture: customFixture } = options;
+  const { general = false, fixture: customFixture, refreshMs } = options;
   const { source } = useDataMode();
   const { persona } = useBusiness();
   const [state, setState] = useState<Omit<BusinessData<T>, "reload">>({
@@ -112,7 +114,7 @@ export function useBusinessData<T>(
       );
     };
 
-    setState((prev) => ({ ...prev, loading: true, error: null }));
+    setState((prev) => ({ ...prev, loading: prev.data == null, error: null }));
     if (source === "demo") {
       fixture(null);
       return;
@@ -135,10 +137,17 @@ export function useBusinessData<T>(
           });
         }
       });
+    if (refreshMs == null || refreshMs <= 0) {
+      return () => {
+        cancelled = true;
+      };
+    }
+    const timer = setInterval(() => setTick((t) => t + 1), refreshMs);
     return () => {
       cancelled = true;
+      clearInterval(timer);
     };
-  }, [path, source, persona, tick, general, customFixture]);
+  }, [path, source, persona, tick, general, customFixture, refreshMs]);
 
   return { ...state, reload };
 }

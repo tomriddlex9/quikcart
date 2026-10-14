@@ -10,6 +10,7 @@ A :class:`ReadModel` wraps one open, read-only connection for one request.
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
@@ -22,7 +23,15 @@ from quickcart.business import snapshot as snap
 from quickcart.business.snapshot import SnapshotPlan
 
 LIVE_WINDOW_DAYS = snap.BASELINE_OFFSET_DAYS + 1
+_PLAN_TTL = timedelta(seconds=15)
 _MISSING_SERVING = (psycopg.errors.UndefinedTable, psycopg.errors.InvalidSchemaName)
+_STALE_NOTE = (
+    "The serving snapshot is behind live orders, so these day figures were recomputed "
+    "from the operational tables. The live counters use the same queries as Live operations."
+)
+_plan_lock = threading.Lock()
+_plan_cache: dict[date, tuple[datetime, SnapshotPlan]] = {}
+_plan_inflight: dict[date, threading.Event] = {}
 
 
 @dataclass(frozen=True)
@@ -52,6 +61,43 @@ Series = dict[str, dict[date, Decimal | None]]  # metric_key -> day -> value
 def _day_bounds(day: date) -> tuple[datetime, datetime]:
     start = datetime.combine(day, time.min, tzinfo=UTC)
     return start, start + timedelta(days=1)
+
+
+def _cached_live_plan(conn: psycopg.Connection, day: date) -> SnapshotPlan:
+    """One live plan per day for 15 seconds, shared by concurrent requests."""
+    now = datetime.now(UTC)
+    with _plan_lock:
+        cached = _plan_cache.get(day)
+        if cached is not None and now - cached[0] < _PLAN_TTL:
+            return cached[1]
+        event = _plan_inflight.get(day)
+        if event is None:
+            event = threading.Event()
+            _plan_inflight[day] = event
+            owner = True
+        else:
+            owner = False
+    if not owner:
+        event.wait(60)
+        with _plan_lock:
+            cached = _plan_cache.get(day)
+        if cached is not None and datetime.now(UTC) - cached[0] < _PLAN_TTL:
+            return cached[1]
+    try:
+        inputs = snap.collect_postgres_inputs(conn, days=LIVE_WINDOW_DAYS, as_of=day)
+        plan = snap.build_plan(inputs)
+    except Exception:
+        if owner:
+            with _plan_lock:
+                _plan_inflight.pop(day, None)
+            event.set()
+        raise
+    if owner:
+        with _plan_lock:
+            _plan_cache[day] = (datetime.now(UTC), plan)
+            _plan_inflight.pop(day, None)
+        event.set()
+    return plan
 
 
 class ReadModel:
@@ -89,23 +135,53 @@ class ReadModel:
             LIMIT 1
             """
         )
-        if rows:
-            row = rows[0]
-            self._as_of = AsOf(
-                row["as_of_day"], "serving", int(row["snapshot_run_id"]), row["finished_at"]
+        with self._conn.transaction():
+            latest = snap.resolve_as_of(self._conn)
+        if not rows:
+            self._as_of = AsOf(latest, "live_sql")
+            return self._as_of
+        row = rows[0]
+        finished = row["finished_at"]
+        snapshot_id = int(row["snapshot_run_id"])
+        stale = row["as_of_day"] != latest
+        if not stale and finished is not None:
+            newer = self._query(
+                "SELECT order_id FROM orders WHERE placed_at > %(finished_at)s LIMIT 1",
+                {"finished_at": finished},
             )
+            stale = bool(newer)
+        if stale:
+            self._as_of = AsOf(latest, "live_sql", snapshot_id, finished)
         else:
-            with self._conn.transaction():
-                day = snap.resolve_as_of(self._conn)
-            self._as_of = AsOf(day, "live_sql")
+            self._as_of = AsOf(row["as_of_day"], "serving", snapshot_id, finished)
         return self._as_of
+
+    def freshness_note(self) -> str | None:
+        """Why day figures were recomputed, when the serving snapshot is behind."""
+        as_of = self.as_of()
+        if as_of.source == "live_sql" and as_of.snapshot_run_id is not None:
+            return _STALE_NOTE
+        return None
+
+    def live_window(self) -> dict[str, Any] | None:
+        """Rolling counters from the same SQL as ``GET /api/v1/live/snapshot``."""
+        conn = getattr(self, "_conn", None)
+        if conn is None:
+            return None
+        from quickcart.api.live import query_live_window
+
+        return query_live_window(conn)
 
     def _live(self) -> SnapshotPlan:
         if self._live_plan is None:
-            inputs = snap.collect_postgres_inputs(
-                self._conn, days=LIVE_WINDOW_DAYS, as_of=self.as_of().day
-            )
-            self._live_plan = snap.build_plan(inputs)
+            day = self.as_of().day
+            if isinstance(self._conn, psycopg.Connection):
+                self._live_plan = _cached_live_plan(self._conn, day)
+            else:
+                inputs = snap.collect_postgres_inputs(
+                    self._conn, days=LIVE_WINDOW_DAYS, as_of=day
+                )
+                self._live_plan = snap.build_plan(inputs)
         return self._live_plan
 
     # --- directory -------------------------------------------------------------------

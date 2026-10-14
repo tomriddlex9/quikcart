@@ -184,6 +184,29 @@ def _fetchall(cursor: Any, statement: str) -> list[dict[str, Any]]:
     return list(cursor.fetchall())
 
 
+def read_live_window(cursor: Any) -> dict[str, Any]:
+    """Rolling operational counters. Same statements as the Live operations page."""
+    totals = _fetchone(cursor, _SNAPSHOT_TOTALS_SQL)
+    payment = _fetchone(cursor, _PAYMENT_FAILURE_SQL)
+    deliveries = _fetchone(cursor, _ACTIVE_DELIVERIES_SQL)
+    return {
+        "orders_1m": _number(totals.get("orders_1m"), int),
+        "orders_15m": _number(totals.get("orders_15m"), int),
+        "orders_60m": _number(totals.get("orders_60m"), int),
+        "gmv_1m": _number(totals.get("gmv_1m"), float),
+        "gmv_15m": _number(totals.get("gmv_15m"), float),
+        "gmv_60m": _number(totals.get("gmv_60m"), float),
+        "payment_failure_rate_15m": _number(payment.get("failure_rate"), float),
+        "active_deliveries": _number(deliveries.get("active_deliveries"), int),
+    }
+
+
+def query_live_window(conn: psycopg.Connection) -> dict[str, Any]:
+    """Read the live window on an open connection, in one read-only transaction."""
+    with conn.transaction(), conn.cursor(row_factory=dict_row) as cursor:
+        return read_live_window(cursor)
+
+
 def build_live_snapshot(
     *,
     connect_factory: Callable[..., psycopg.Connection] = connect,
@@ -193,23 +216,21 @@ def build_live_snapshot(
     with connect_factory() as conn:
         conn.read_only = True
         with conn.transaction(), conn.cursor(row_factory=dict_row) as cursor:
-            totals = _fetchone(cursor, _SNAPSHOT_TOTALS_SQL)
+            window = read_live_window(cursor)
             minutes = _fetchall(cursor, _MINUTE_BUCKETS_SQL)
             statuses = _fetchall(cursor, _STATUS_MIX_SQL)
             stores = _fetchall(cursor, _PER_STORE_SQL)
             recent = _fetchall(cursor, _RECENT_ORDERS_SQL)
-            payment = _fetchone(cursor, _PAYMENT_FAILURE_SQL)
-            deliveries = _fetchone(cursor, _ACTIVE_DELIVERIES_SQL)
 
     now = generated_at or datetime.now(UTC)
     return LiveSnapshot(
         generated_at=_utc_iso(now),
-        orders_1m=_number(totals.get("orders_1m"), int),
-        orders_15m=_number(totals.get("orders_15m"), int),
-        orders_60m=_number(totals.get("orders_60m"), int),
-        gmv_1m=_number(totals.get("gmv_1m"), float),
-        gmv_15m=_number(totals.get("gmv_15m"), float),
-        gmv_60m=_number(totals.get("gmv_60m"), float),
+        orders_1m=window["orders_1m"],
+        orders_15m=window["orders_15m"],
+        orders_60m=window["orders_60m"],
+        gmv_1m=window["gmv_1m"],
+        gmv_15m=window["gmv_15m"],
+        gmv_60m=window["gmv_60m"],
         orders_per_minute=[
             LiveMinuteBucket(
                 minute=_utc_iso(row["minute"]),
@@ -239,8 +260,8 @@ def build_live_snapshot(
             )
             for row in recent
         ],
-        payment_failure_rate_15m=_number(payment.get("failure_rate"), float),
-        active_deliveries=_number(deliveries.get("active_deliveries"), int),
+        payment_failure_rate_15m=window["payment_failure_rate_15m"],
+        active_deliveries=window["active_deliveries"],
     )
 
 

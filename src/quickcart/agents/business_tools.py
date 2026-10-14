@@ -44,7 +44,7 @@ from quickcart.agents.tools import (
     current_tool_context,
 )
 from quickcart.api.business.readmodel import ReadModel
-from quickcart.api.business.schemas import AttentionItem, MetricValue
+from quickcart.api.business.schemas import AttentionItem, LiveWindow, MetricValue
 from quickcart.api.business.service import BusinessService, NotFoundError
 from quickcart.business.snapshot import SCORECARD_COLUMNS
 from quickcart.identity.rbac import scope_filter
@@ -574,10 +574,45 @@ def _explain_metric_change(deps: BusinessDeps, args: ExplainMetricChangeArgs) ->
     )
 
 
+def _live_facts(live: LiveWindow) -> list[Fact]:
+    """Citable copies of the Live operations counters. Displays only, no raw floats in the view."""
+    specs = (
+        ("live_orders_1m", "Orders in the last minute", live.orders_1m, "count"),
+        ("live_gmv_15m", "GMV in the last 15 minutes", live.gmv_15m, "inr"),
+        ("live_orders_60m", "Orders in the last 60 minutes", live.orders_60m, "count"),
+        ("live_gmv_60m", "GMV in the last 60 minutes", live.gmv_60m, "inr"),
+        ("live_active_deliveries", "Active deliveries", live.active_deliveries, "count"),
+        (
+            "live_payment_failures_15m",
+            "Payment failures in the last 15 minutes",
+            live.payment_failure_rate_15m,
+            "pct",
+        ),
+    )
+    facts: list[Fact] = []
+    for key, label, value, unit in specs:
+        shown = float(value)
+        display = format_display(shown, unit)
+        facts.append(
+            Fact(
+                ref=metric_ref(key),
+                kind="metric",
+                label=label,
+                value=shown,
+                display=display,
+                unit=unit,
+                explanation=f"{label} is {display}. Same figure as Live operations.",
+                data={"metric_key": key, "window": "live"},
+            )
+        )
+    return facts
+
+
 def _get_briefing(deps: BusinessDeps, args: GetBriefingArgs) -> dict[str, Any]:
     with deps.open_service() as svc:
         today = svc.today()
     headline = [_metric_fact(m) for m in today.headline]
+    live = _live_facts(today.live) if today.live is not None else []
     risk = Fact(
         ref="risk:attention",
         kind="risk_list",
@@ -585,14 +620,19 @@ def _get_briefing(deps: BusinessDeps, args: GetBriefingArgs) -> dict[str, Any]:
         items=_risk_items(today.attention),
     )
     cards: list[dict[str, Any]] = [{"type": "kpi", "ref": f.ref} for f in headline[:3]]
+    cards.extend({"type": "kpi", "ref": fact.ref} for fact in live[:2])
     if risk.items:
         cards.append({"type": "risk_list", "ref": risk.ref})
     return _result(
         today.summary,
-        [*headline, risk],
+        [*headline, *live, risk],
         cards,
         meta=today.meta,
-        extra_view={"briefing": today.summary, "attention_count": len(risk.items)},
+        extra_view={
+            "briefing": today.summary,
+            "attention_count": len(risk.items),
+            "live_window": "same queries as Live operations" if live else None,
+        },
     )
 
 
@@ -711,7 +751,8 @@ def business_specs(deps: BusinessDeps) -> list[ToolSpec]:
         ),
         ToolSpec(
             "get_briefing",
-            "Today's briefing: headline numbers and what needs attention.",
+            "Today's briefing: headline day numbers, the Live operations counters "
+            "(same queries as the Live operations page), and what needs attention.",
             GetBriefingArgs,
             bind(_get_briefing),
             permission="kpi:read",

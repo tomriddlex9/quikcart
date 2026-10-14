@@ -230,6 +230,15 @@ export function TrendChart({
   );
 }
 
+/** Round an axis top up to a tidy step (4,862 → 5,000). Never returns NaN. */
+function tidyAxisTop(max: number): number {
+  if (!Number.isFinite(max) || max <= 0) return 1;
+  const padded = max * 1.1;
+  const step = 10 ** Math.floor(Math.log10(padded)) / 2;
+  if (!Number.isFinite(step) || step <= 0) return padded;
+  return Math.ceil(padded / step) * step;
+}
+
 /** Actual history (solid area) followed by a forecast (dashed line) with a shaded range. */
 export function ForecastChart({
   history,
@@ -251,12 +260,16 @@ export function ForecastChart({
       // join the forecast line to the last actual point
       ...(i === history.length - 1 ? { forecast: h.value, low: h.value, band: 0 } : {}),
     })),
-    ...forecast.map((f) => ({ at: f.at, forecast: f.value, low: f.low, band: f.high - f.low })),
+    ...forecast.map((f) => ({
+      at: f.at,
+      forecast: f.value,
+      low: f.low,
+      band: Math.max(0, f.high - f.low),
+    })),
   ];
-  const max = Math.max(...forecast.map((f) => f.high), ...history.map((h) => h.value));
-  // Round the axis top up to a tidy number (e.g. 4,862 -> 5,000).
-  const step = 10 ** Math.floor(Math.log10(max * 1.1)) / 2;
-  const top = Math.ceil((max * 1.1) / step) * step;
+  const samples = [...forecast.map((f) => f.high), ...history.map((h) => h.value)].filter((n) => Number.isFinite(n));
+  const max = samples.length ? Math.max(...samples) : 0;
+  const top = tidyAxisTop(max);
 
   return (
     <div style={{ height }}>

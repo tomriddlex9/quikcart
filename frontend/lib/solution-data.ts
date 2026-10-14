@@ -100,8 +100,11 @@ export function bizStoreDetail(storeId: number): StoreDetail | null {
 const DAY_MS = 86_400_000;
 
 function buildSalesForecast() {
-  const trend = BIZ.money.daily_trend;
-  const full = trend.slice(0, -1).map((p) => ({ at: p.at, sales: p.sales ?? 0 }));
+  const points = BIZ.money.daily_trend.map((p) => ({ at: p.at, sales: p.sales ?? 0 }));
+  // Completed days only. Today stays on the chart so the axis does not skip a day,
+  // but it is still in progress and is not part of the average.
+  const full = points.slice(0, -1);
+  const todayMs = Date.parse(points[points.length - 1]?.at ?? "");
   const byDate = new Map(full.map((p) => [p.at, p.sales]));
 
   const changes: number[] = [];
@@ -111,18 +114,24 @@ function buildSalesForecast() {
   }
   const range = changes.length ? changes.reduce((a, b) => a + b, 0) / changes.length : 0;
 
-  const today = Date.parse(trend[trend.length - 1].at);
-  const days = Array.from({ length: 7 }, (_, i) => {
-    const t = today + (i + 1) * DAY_MS;
-    const same = full.filter((p) => ((t - Date.parse(p.at)) / DAY_MS) % 7 === 0).map((p) => p.sales);
-    const sales = Math.round(same.reduce((a, b) => a + b, 0) / Math.max(same.length, 1));
-    return { at: new Date(t).toISOString().slice(0, 10), sales, low: Math.round(sales * (1 - range)), high: Math.round(sales * (1 + range)) };
-  });
+  const days = Number.isNaN(todayMs)
+    ? []
+    : Array.from({ length: 7 }, (_, i) => {
+        const t = todayMs + (i + 1) * DAY_MS;
+        const same = full.filter((p) => ((t - Date.parse(p.at)) / DAY_MS) % 7 === 0).map((p) => p.sales);
+        const sales = Math.round(same.reduce((a, b) => a + b, 0) / Math.max(same.length, 1));
+        return {
+          at: new Date(t).toISOString().slice(0, 10),
+          sales,
+          low: Math.max(0, Math.round(sales * (1 - range))),
+          high: Math.round(sales * (1 + range)),
+        };
+      });
 
   const total = days.reduce((a, d) => a + d.sales, 0);
   const last7 = full.slice(-7).reduce((a, p) => a + p.sales, 0);
-  const peak = days.reduce((a, d) => (d.sales > a.sales ? d : a), days[0]);
-  return { history: full, days, range, total, vsLast7: last7 ? total / last7 - 1 : null, peak };
+  const peak = days.reduce((a, d) => (d.sales > a.sales ? d : a), days[0] ?? { at: "", sales: 0, low: 0, high: 0 });
+  return { history: points, days, range, total, vsLast7: last7 ? total / last7 - 1 : null, peak };
 }
 
 export const SALES_FORECAST = buildSalesForecast();
@@ -165,9 +174,11 @@ export function storeLateOrders(storeId: number): { orders: AtRiskOrder[]; likel
   const rand = seeded(storeId * 7919 + 17);
 
   const base = logit(Math.min(Math.max(1 - onTime, 0.03), 0.6));
-  let minute = 1 + Math.floor(rand() * 4);
+  // Business "now" is 15:00 IST. Keep placements in the hour before that,
+  // and do not clamp several orders onto the same minute.
+  let minute = 8 + Math.floor(rand() * 4);
   const orders: AtRiskOrder[] = Array.from({ length: 6 }, (_, i) => {
-    minute += 1 + Math.floor(rand() * 4);
+    minute += 3 + Math.floor(rand() * 3);
     const distanceKm = Math.round((0.6 + rand() * 3.3) * 10) / 10;
     const promisedMin = rand() < 0.45 ? 10 : 15;
     const items = 2 + Math.floor(rand() * 16);
@@ -186,7 +197,7 @@ export function storeLateOrders(storeId: number): { orders: AtRiskOrder[]; likel
       .map(([, r]) => r);
     return {
       id: `QC-${81400 + storeId * 113 + i * 7 + Math.floor(rand() * 5)}`,
-      placed: `09:${String(Math.min(minute, 29)).padStart(2, "0")}`,
+      placed: `14:${String(Math.min(minute, 59)).padStart(2, "0")}`,
       promisedMin,
       distanceKm,
       items,
@@ -225,27 +236,54 @@ export function storeDemandForecast(storeId: number) {
   const sales = Math.round(avg("sales"));
 
   const wiggle = HOUR_PROFILE.map((v) => v * (0.9 + rand() * 0.2));
-  const total = wiggle.reduce((a, b) => a + b, 0);
-  const hourly = wiggle.map((v, h) => ({ hour: `${String(h).padStart(2, "0")}:00`, orders: Math.round((orders * v) / total) }));
+  const shares = allocate(orders, wiggle);
+  const hourly = shares.map((qty, h) => ({ hour: `${String(h).padStart(2, "0")}:00`, orders: qty }));
   const peak = hourly.reduce((a, h) => (h.orders > a.orders ? h : a), hourly[0]);
 
   const weights = [0.11, 0.085, 0.07, 0.062, 0.055];
-  const products = BIZ.bestsellers.items.slice(0, 5).map((p, i) => ({
+  const seen = new Set<string>();
+  const picked: { name: string; category: string }[] = [];
+  for (const p of [...(detail?.running_low ?? []), ...BIZ.bestsellers.items]) {
+    if (!p.name || seen.has(p.name)) continue;
+    seen.add(p.name);
+    picked.push({ name: p.name, category: p.category });
+    if (picked.length === weights.length) break;
+  }
+  const products = picked.map((p, i) => ({
     name: p.name,
     category: p.category,
-    units: Math.round(orders * weights[i] * (0.85 + rand() * 0.3)),
+    units: Math.max(0, Math.round(orders * weights[i] * (0.85 + rand() * 0.3))),
   }));
 
   return {
     tomorrow,
     orders,
     sales,
-    low: Math.round(orders * (1 - range)),
+    low: Math.max(0, Math.round(orders * (1 - range))),
     high: Math.round(orders * (1 + range)),
     hourly,
     peak,
     products,
   };
+}
+
+/** Split `total` across `weights` so the parts sum to `total`. */
+function allocate(total: number, weights: number[]): number[] {
+  if (total <= 0 || weights.length === 0) return weights.map(() => 0);
+  const sum = weights.reduce((a, b) => a + b, 0);
+  if (sum <= 0) return weights.map(() => 0);
+  const raw = weights.map((w) => (total * w) / sum);
+  const floors = raw.map((v) => Math.floor(v));
+  let left = total - floors.reduce((a, b) => a + b, 0);
+  const byRemainder = raw
+    .map((v, i) => ({ i, frac: v - Math.floor(v) }))
+    .sort((a, b) => b.frac - a.frac || a.i - b.i);
+  for (const { i } of byRemainder) {
+    if (left <= 0) break;
+    floors[i] += 1;
+    left -= 1;
+  }
+  return floors;
 }
 
 /** Sales and orders summed per city from the store scorecards. */
@@ -343,7 +381,8 @@ export const OPEN_ORDERS_AT_RISK = (() => {
     probability: DEMO_DELIVERY_PREDICTION.late_probability ?? 0.73,
     reason: "Store busy · long distance",
   };
-  const picks = [8, 4, 6, 2, 10, 1, 7, 5]; // store ids: Gurugram, Hyderabad, Chennai, Delhi, Ahmedabad, Mumbai, Kolkata, Pune
+  // Every city except the real scored order's city (Bengaluru, store 3).
+  const picks = [8, 4, 6, 2, 10, 1, 7, 5, 9];
   const generated = picks.map((storeId, i) => {
     const store = OPS_STORES.find((s) => s.store_id === storeId);
     const lateRate = store?.late_rate ?? 0.072;
@@ -387,7 +426,12 @@ export const ORDERS_FORECAST = (() => {
     const t = last + (i + 1) * DAY_MS;
     const same = [7, 14, 21, 28].map((k) => byDate.get(ISO_DAY(t - k * DAY_MS))).filter((v): v is number => v != null);
     const value = Math.round(same.reduce((a, b) => a + b, 0) / Math.max(same.length, 1));
-    return { at: ISO_DAY(t), value, low: Math.round(value * (1 - DEMO_FORECAST_MAPE)), high: Math.round(value * (1 + DEMO_FORECAST_MAPE)) };
+    return {
+      at: ISO_DAY(t),
+      value,
+      low: Math.max(0, Math.round(value * (1 - DEMO_FORECAST_MAPE))),
+      high: Math.round(value * (1 + DEMO_FORECAST_MAPE)),
+    };
   });
   const total = days.reduce((a, d) => a + d.value, 0);
   const last7 = history.slice(-7).reduce((a, h) => a + h.value, 0);

@@ -155,8 +155,9 @@ function SalesForecastPanel() {
           height={230}
         />
         <p className="text-xs text-muted-foreground">
-          Illustrative forecast: each day is the average of the same weekday in the last two weeks; the shaded range is
-          ±{(f.range * 100).toFixed(1)}%, the typical week-on-week change. Today is left out while it is in progress.
+          Illustrative forecast: each future day is the average of that weekday on the completed days of this
+          chart; the shaded range is ±{(f.range * 100).toFixed(1)}%, the typical week-on-week change. Today is shown,
+          and left out of the average while it is still in progress.
         </p>
       </div>
     </Panel>

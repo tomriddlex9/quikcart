@@ -159,6 +159,8 @@ export function TrendChart({
   rightFormat,
   valueFormat,
   height = 240,
+  leftDomain,
+  rightDomain,
 }: {
   data: Record<string, unknown>[];
   xKey: string;
@@ -168,6 +170,8 @@ export function TrendChart({
   rightFormat?: (v: number) => string;
   valueFormat?: (key: string | undefined, v: number) => string;
   height?: number;
+  leftDomain?: [number, number];
+  rightDomain?: [number, number];
 }) {
   const hasRight = series.some((s) => s.axis === "right");
   return (
@@ -176,9 +180,17 @@ export function TrendChart({
         <ComposedChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
           <CartesianGrid vertical={false} />
           <XAxis dataKey={xKey} tickFormatter={xFormat} tickLine={false} axisLine={false} minTickGap={32} />
-          <YAxis yAxisId="left" tickLine={false} axisLine={false} width={72} tickFormatter={leftFormat} />
+          <YAxis yAxisId="left" tickLine={false} axisLine={false} width={72} tickFormatter={leftFormat} domain={leftDomain} />
           {hasRight ? (
-            <YAxis yAxisId="right" orientation="right" tickLine={false} axisLine={false} width={56} tickFormatter={rightFormat} />
+            <YAxis
+              yAxisId="right"
+              orientation="right"
+              tickLine={false}
+              axisLine={false}
+              width={56}
+              tickFormatter={rightFormat}
+              domain={rightDomain}
+            />
           ) : null}
           <Tooltip
             labelFormatter={(v) => (xFormat ? xFormat(String(v)) : String(v))}
@@ -218,6 +230,104 @@ export function TrendChart({
   );
 }
 
+/** Round an axis top up to a tidy step (4,862 → 5,000). Never returns NaN. */
+function tidyAxisTop(max: number): number {
+  if (!Number.isFinite(max) || max <= 0) return 1;
+  const padded = max * 1.1;
+  const step = 10 ** Math.floor(Math.log10(padded)) / 2;
+  if (!Number.isFinite(step) || step <= 0) return padded;
+  return Math.ceil(padded / step) * step;
+}
+
+/** Actual history (solid area) followed by a forecast (dashed line) with a shaded range. */
+export function ForecastChart({
+  history,
+  forecast,
+  xFormat,
+  valueFormat,
+  height = 260,
+}: {
+  history: { at: string; value: number }[];
+  forecast: { at: string; value: number; low: number; high: number }[];
+  xFormat: (v: string) => string;
+  valueFormat: (v: number) => string;
+  height?: number;
+}) {
+  const rows: Record<string, unknown>[] = [
+    ...history.map((h, i) => ({
+      at: h.at,
+      actual: h.value,
+      // join the forecast line to the last actual point
+      ...(i === history.length - 1 ? { forecast: h.value, low: h.value, band: 0 } : {}),
+    })),
+    ...forecast.map((f) => ({
+      at: f.at,
+      forecast: f.value,
+      low: f.low,
+      band: Math.max(0, f.high - f.low),
+    })),
+  ];
+  const samples = [...forecast.map((f) => f.high), ...history.map((h) => h.value)].filter((n) => Number.isFinite(n));
+  const max = samples.length ? Math.max(...samples) : 0;
+  const top = tidyAxisTop(max);
+
+  return (
+    <div style={{ height }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <ComposedChart data={rows} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+          <CartesianGrid vertical={false} />
+          <XAxis dataKey="at" tickFormatter={xFormat} tickLine={false} axisLine={false} minTickGap={24} />
+          <YAxis tickLine={false} axisLine={false} width={72} tickFormatter={valueFormat} domain={[0, top]} />
+          <Tooltip
+            content={({ active, payload, label }) => {
+              const row = payload?.[0]?.payload as Record<string, number> | undefined;
+              if (!active || !row) return null;
+              const isForecast = row.actual === undefined;
+              return (
+                <div className="rounded-lg border border-border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-md">
+                  <div className="mb-1 text-muted-foreground">{xFormat(String(label))}</div>
+                  {isForecast ? (
+                    <>
+                      <div className="tabular-nums">Forecast {valueFormat(row.forecast)}</div>
+                      <div className="tabular-nums text-muted-foreground">
+                        Range {valueFormat(row.low)} – {valueFormat(row.low + row.band)}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="tabular-nums">Actual {valueFormat(row.actual)}</div>
+                  )}
+                </div>
+              );
+            }}
+          />
+          <Area dataKey="low" stackId="range" stroke="none" fill="transparent" isAnimationActive={false} legendType="none" name="Range low" />
+          <Area dataKey="band" stackId="range" stroke="none" fill="var(--chart-3)" fillOpacity={0.18} isAnimationActive={false} name="Likely range" />
+          <Area
+            type="monotone"
+            dataKey="actual"
+            name="Actual"
+            stroke="var(--chart-1)"
+            fill="var(--chart-1)"
+            fillOpacity={0.14}
+            strokeWidth={1.5}
+            isAnimationActive={false}
+          />
+          <Line
+            type="monotone"
+            dataKey="forecast"
+            name="Forecast"
+            stroke="var(--chart-3)"
+            strokeWidth={2}
+            strokeDasharray="6 4"
+            dot={{ r: 2.5 }}
+            isAnimationActive={false}
+          />
+        </ComposedChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
 /** Vertical bar chart: one bar per series for each category. */
 export function Bars({
   data,
@@ -225,19 +335,22 @@ export function Bars({
   bars,
   format,
   height = 220,
+  xInterval = 0,
 }: {
   data: Record<string, unknown>[];
   xKey: string;
   bars: { key: string; name: string; color: string }[];
   format?: (v: number) => string;
   height?: number;
+  /** Labels to skip between shown x-axis labels (0 = show every label). */
+  xInterval?: number;
 }) {
   return (
     <div style={{ height }}>
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
           <CartesianGrid vertical={false} />
-          <XAxis dataKey={xKey} tickLine={false} axisLine={false} interval={0} fontSize={11} />
+          <XAxis dataKey={xKey} tickLine={false} axisLine={false} interval={xInterval} fontSize={11} />
           <YAxis tickLine={false} axisLine={false} width={52} tickFormatter={format} />
           <Tooltip content={<ChartTooltip format={(_, v) => (format ? format(v) : String(v))} />} />
           {bars.map((b) => (

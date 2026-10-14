@@ -7,7 +7,7 @@ import {
   Bars,
   BarList,
   DataTable,
-  EmptyPanel,
+  ForecastChart,
   Kpi,
   KpiGrid,
   Panel,
@@ -21,9 +21,14 @@ import {
   EMERGENCY_COVER_HOURS,
   PREDICTION_EXPLAINED,
   FORECASTS,
+  LATEST_MODEL_SCORE,
+  MODEL_RUNS,
+  OPEN_ORDERS_AT_RISK,
   OPS,
   OPS_STORES,
+  ORDERS_FORECAST,
   PROPOSALS,
+  QUALITY_TREND,
   RISKS,
   count,
   inr,
@@ -191,11 +196,42 @@ export function OperationsPage() {
         </Panel>
       </div>
 
-      <EmptyPanel
+      <Panel
         title="Open orders at risk"
-        note="Every open order with its late probability"
-        what="The dummy data holds one scored order. The full list fills in when the late-delivery model runs on live orders."
-      />
+        note={`${OPEN_ORDERS_AT_RISK.filter((o) => o.probability >= 0.5).length} of ${OPEN_ORDERS_AT_RISK.length} scored open orders above 50% · highest risk first`}
+      >
+        <DataTable
+          minWidth={760}
+          head={[
+            { label: "Order" },
+            { label: "City" },
+            { label: "Status" },
+            { label: "Scored (IST)" },
+            { label: "Promise", align: "right" },
+            { label: "Distance", align: "right" },
+            { label: "Late chance", align: "right" },
+            { label: "Main reason" },
+          ]}
+          rows={OPEN_ORDERS_AT_RISK.map((o) => [
+            <span key="id" className="whitespace-nowrap font-medium">#{o.id}</span>,
+            o.city,
+            o.status,
+            <span key="t" className="whitespace-nowrap">{timeIST(o.at)}</span>,
+            <span key="pr" className="whitespace-nowrap">{o.promisedMin} min</span>,
+            <span key="d" className="whitespace-nowrap">{o.distanceKm.toFixed(1)} km</span>,
+            <span
+              key="p"
+              className={cn(
+                "font-medium",
+                o.probability >= 0.7 ? "text-destructive" : o.probability >= 0.5 ? "text-chart-3" : "text-chart-2",
+              )}
+            >
+              {Math.round(o.probability * 100)}%
+            </span>,
+            <span key="r" className="text-xs text-muted-foreground">{o.reason}</span>,
+          ])}
+        />
+      </Panel>
     </div>
   );
 }
@@ -346,11 +382,38 @@ export function InventoryPage() {
         </Panel>
       </div>
 
-      <EmptyPanel
-        title="Demand forecast over time"
-        note="Actual vs forecast by day, per store, category and product"
-        what="The dummy data holds one forecast day. The trend fills in when the demand model runs daily on the pipeline."
-      />
+      <Panel title="Orders forecast, next 7 days" note="All stores · actual orders, then the forecast with its likely range">
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_14rem]">
+          <ForecastChart
+            history={ORDERS_FORECAST.history}
+            forecast={ORDERS_FORECAST.days}
+            xFormat={shortDate}
+            valueFormat={count}
+            height={240}
+          />
+          <div className="grid content-start gap-2">
+            {[
+              ["Next 7 days", `${count(ORDERS_FORECAST.total)} orders`],
+              [
+                "vs last 7 days",
+                ORDERS_FORECAST.vsLast7 == null
+                  ? "—"
+                  : `${ORDERS_FORECAST.vsLast7 > 0 ? "+" : ""}${(ORDERS_FORECAST.vsLast7 * 100).toFixed(1)}%`,
+              ],
+              [
+                "Busiest day",
+                `${new Date(`${ORDERS_FORECAST.peak.at}T00:00:00Z`).toLocaleDateString("en-IN", { weekday: "long", timeZone: "UTC" })}, ${count(ORDERS_FORECAST.peak.value)}`,
+              ],
+              ["Likely range", `±${pct(OPS.forecastMape)} per day`],
+            ].map(([label, value]) => (
+              <div key={label} className="rounded-lg bg-muted/40 px-3 py-2">
+                <div className="text-xs text-muted-foreground">{label}</div>
+                <div className="text-sm font-semibold tabular-nums">{value}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </Panel>
 
       <Panel title="Restock & action proposals" note="Raised by QuickCart, approved by a person">
         <DataTable
@@ -475,20 +538,53 @@ export function DataHealthPage() {
             m.baselines.map((b) => b.name).join(", "),
             m.candidate.name,
             m.metrics.map((x) => x.name).join(", "),
-            <span key="s" className="text-muted-foreground">—</span>,
+            <span key="s" className="whitespace-nowrap font-medium">{LATEST_MODEL_SCORE[m.id] ?? "—"}</span>,
           ])}
         />
       </Panel>
 
       <div className="grid gap-4 xl:grid-cols-2">
-        <EmptyPanel
-          title="Model accuracy over time"
-          what="The dummy data has no training-run scores. They fill in from MLflow when the models are trained on the pipeline."
-        />
-        <EmptyPanel
-          title="Data quality over time"
-          what="The dummy data has one quality score. The trend fills in as the pipeline runs and records each check."
-        />
+        <Panel title="Model accuracy over time" note="Weekly training runs · forecast error (left) and late-delivery ROC-AUC (right)">
+          <TrendChart
+            data={MODEL_RUNS as unknown as Record<string, unknown>[]}
+            xKey="at"
+            xFormat={shortDate}
+            series={[
+              { key: "mape", name: "Forecast error (MAPE)", kind: "line", axis: "left", color: "var(--chart-3)" },
+              { key: "rocAuc", name: "Late-delivery ROC-AUC", kind: "line", axis: "right", color: "var(--chart-1)" },
+            ]}
+            leftFormat={(v) => pct(v, 0)}
+            rightFormat={(v) => v.toFixed(2)}
+            valueFormat={(k, v) => (k === "mape" ? pct(v) : v.toFixed(3))}
+            leftDomain={[0.06, 0.12]}
+            rightDomain={[0.76, 0.84]}
+            height={230}
+          />
+          <p className="mt-2 text-xs text-muted-foreground">
+            Forecast error falls from {pct(MODEL_RUNS[0].mape)} to {pct(MODEL_RUNS[MODEL_RUNS.length - 1].mape)}; late-delivery
+            ROC-AUC rises from {MODEL_RUNS[0].rocAuc.toFixed(2)} to {MODEL_RUNS[MODEL_RUNS.length - 1].rocAuc.toFixed(2)}.
+          </p>
+        </Panel>
+        <Panel title="Data quality over time" note="Last 14 days · quality score (line) and records quarantined per day (area)">
+          <TrendChart
+            data={QUALITY_TREND as unknown as Record<string, unknown>[]}
+            xKey="at"
+            xFormat={shortDate}
+            series={[
+              { key: "quarantined", name: "Quarantined", kind: "area", axis: "right", color: "var(--chart-4)" },
+              { key: "score", name: "Quality score", kind: "line", axis: "left", color: "var(--chart-2)" },
+            ]}
+            leftFormat={(v) => `${v}`}
+            rightFormat={count}
+            valueFormat={(k, v) => (k === "score" ? `${v}/100` : `${count(v)} rows`)}
+            leftDomain={[80, 100]}
+            height={230}
+          />
+          <p className="mt-2 text-xs text-muted-foreground">
+            {count(QUALITY_TREND.reduce((a, r) => a + r.quarantined, 0))} records quarantined over 14 days; today&apos;s score{" "}
+            {QUALITY_TREND[QUALITY_TREND.length - 1].score}/100.
+          </p>
+        </Panel>
       </div>
     </div>
   );

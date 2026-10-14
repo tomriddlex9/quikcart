@@ -5,7 +5,7 @@ import {
   Bars,
   BarList,
   DataTable,
-  EmptyPanel,
+  ForecastChart,
   Kpi,
   KpiGrid,
   MetricKpi,
@@ -17,8 +17,11 @@ import type { MetricValue, TrendPoint } from "@/lib/business/types";
 import {
   BIZ,
   SALES_BY_CITY,
+  SALES_FORECAST,
   STORE_MANAGER_STORE_ID,
   bizStoreDetail,
+  storeDemandForecast,
+  storeLateOrders,
   count,
   hourLabel,
   inr,
@@ -119,13 +122,45 @@ export function LeadershipPage() {
             ))}
           </ul>
         </Panel>
-        <EmptyPanel
-          title="Demand forecast"
-          note="Next days, all stores"
-          what="The business dummy data has no forecast. It fills in when the demand model runs on the pipeline."
-        />
+        <SalesForecastPanel />
       </div>
     </div>
+  );
+}
+
+function SalesForecastPanel() {
+  const f = SALES_FORECAST;
+  const weekday = (iso: string) =>
+    new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-IN", { weekday: "long", timeZone: "UTC" });
+  return (
+    <Panel title="Sales forecast" note="Next 7 days, all stores">
+      <div className="space-y-3">
+        <div className="grid grid-cols-3 gap-2">
+          {[
+            ["Next 7 days", inr(f.total)],
+            ["vs last 7 days", f.vsLast7 == null ? "—" : `${f.vsLast7 > 0 ? "+" : ""}${(f.vsLast7 * 100).toFixed(1)}%`],
+            ["Peak day", `${weekday(f.peak.at)}, ${inr(f.peak.sales)}`],
+          ].map(([label, value]) => (
+            <div key={label} className="rounded-lg bg-muted/40 px-3 py-2">
+              <div className="text-xs text-muted-foreground">{label}</div>
+              <div className="text-sm font-semibold tabular-nums">{value}</div>
+            </div>
+          ))}
+        </div>
+        <ForecastChart
+          history={f.history.map((h) => ({ at: h.at, value: h.sales }))}
+          forecast={f.days.map((d) => ({ at: d.at, value: d.sales, low: d.low, high: d.high }))}
+          xFormat={shortDate}
+          valueFormat={inr}
+          height={230}
+        />
+        <p className="text-xs text-muted-foreground">
+          Illustrative forecast: each future day is the average of that weekday on the completed days of this
+          chart; the shaded range is ±{(f.range * 100).toFixed(1)}%, the typical week-on-week change. Today is shown,
+          and left out of the average while it is still in progress.
+        </p>
+      </div>
+    </Panel>
   );
 }
 
@@ -401,17 +436,90 @@ export function StorePage() {
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
-        <EmptyPanel
-          title="Orders likely to be late"
-          note={`Late-delivery prediction for ${card.store_name}`}
-          what="The business dummy data has no per-order predictions. They fill in when the late-delivery model runs."
-        />
-        <EmptyPanel
-          title={`Demand forecast for ${card.store_name}`}
-          what="The business dummy data has no forecast. It fills in when the demand model runs on the pipeline."
-        />
+        <LateOrdersPanel storeId={card.store_id} storeName={card.store_name} />
+        <StoreForecastPanel storeId={card.store_id} storeName={card.store_name} />
       </div>
     </div>
+  );
+}
+
+function LateOrdersPanel({ storeId, storeName }: { storeId: number; storeName: string }) {
+  const { orders, likelyLate } = storeLateOrders(storeId);
+  return (
+    <Panel
+      title="Orders likely to be late"
+      note={`${storeName} · ${likelyLate} of ${orders.length} open orders above 50% · scored when placed`}
+    >
+      <DataTable
+        minWidth={560}
+        head={[
+          { label: "Order" },
+          { label: "Placed" },
+          { label: "Promise", align: "right" },
+          { label: "Distance", align: "right" },
+          { label: "Late chance", align: "right" },
+          { label: "Main reason" },
+        ]}
+        rows={orders.map((o) => [
+          <span key="id" className="whitespace-nowrap font-medium">{o.id}</span>,
+          o.placed,
+          <span key="pr" className="whitespace-nowrap">{o.promisedMin} min</span>,
+          <span key="d" className="whitespace-nowrap">{o.distanceKm.toFixed(1)} km</span>,
+          <span
+            key="p"
+            className={cn(
+              "font-medium",
+              o.probability >= 0.7 ? "text-destructive" : o.probability >= 0.5 ? "text-chart-3" : "text-chart-2",
+            )}
+          >
+            {Math.round(o.probability * 100)}%
+          </span>,
+          <span key="r" className="text-xs text-muted-foreground">{o.reasons.join(" · ")}</span>,
+        ])}
+      />
+    </Panel>
+  );
+}
+
+function StoreForecastPanel({ storeId, storeName }: { storeId: number; storeName: string }) {
+  const f = storeDemandForecast(storeId);
+  const day = f.tomorrow
+    ? new Date(`${f.tomorrow}T00:00:00Z`).toLocaleDateString("en-IN", { weekday: "long", day: "2-digit", month: "short", timeZone: "UTC" })
+    : "Tomorrow";
+  return (
+    <Panel title={`Demand forecast for ${storeName}`} note={`Tomorrow, ${day}`}>
+      <div className="space-y-3">
+        <div className="grid grid-cols-3 gap-2">
+          {[
+            ["Expected orders", `${count(f.orders)}`, `${count(f.low)} – ${count(f.high)}`],
+            ["Expected sales", inr(f.sales), "all categories"],
+            ["Busiest hour", f.peak.hour, `${count(f.peak.orders)} orders`],
+          ].map(([label, value, hint]) => (
+            <div key={label} className="rounded-lg bg-muted/40 px-3 py-2">
+              <div className="text-xs text-muted-foreground">{label}</div>
+              <div className="text-sm font-semibold tabular-nums">{value}</div>
+              <div className="text-xs text-muted-foreground tabular-nums">{hint}</div>
+            </div>
+          ))}
+        </div>
+        <Bars
+          data={f.hourly}
+          xKey="hour"
+          bars={[{ key: "orders", name: "Expected orders", color: "var(--chart-1)" }]}
+          format={count}
+          height={170}
+          xInterval={2}
+        />
+        <div>
+          <div className="mb-1 text-xs font-medium text-muted-foreground">Plan stock for tomorrow</div>
+          <DataTable
+            minWidth={360}
+            head={[{ label: "Product" }, { label: "Category" }, { label: "Expected units", align: "right" }]}
+            rows={f.products.map((p) => [p.name, p.category, count(p.units)])}
+          />
+        </div>
+      </div>
+    </Panel>
   );
 }
 

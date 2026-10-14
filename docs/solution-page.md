@@ -34,23 +34,23 @@ The full platform has two dummy-data sets: one for the business console and one 
 
 ## Dashboards
 
-✅ filled from dummy data · ⬜ "No data yet"
+✅ filled from dummy data · 🧪 generated sample data (see "Choices made on the dummy data")
 
 ### Business
 
 | Dashboard | Widgets |
 |---|---|
-| **Leadership** (Meera Kapoor) | ✅ Today vs same day last week: sales, orders, average basket, on-time, cancellations, delivery time, items about to run out, active and repeat customers · ✅ sales, last 14 days · ✅ monthly target pacing, net sales, discounts, refunds · ✅ needs-attention list · ⬜ demand forecast |
+| **Leadership** (Meera Kapoor) | ✅ Today vs same day last week: sales, orders, average basket, on-time, cancellations, delivery time, items about to run out, active and repeat customers · ✅ sales, last 14 days · ✅ monthly target pacing, net sales, discounts, refunds · ✅ needs-attention list · 🧪 sales forecast, next 7 days (illustrative, see below) |
 | **Business & Revenue Manager** (Karan Mehta) | ✅ sales, basket, active and repeat customers · ✅ scorecard of all 8 stores; click a store for its hourly and 14-day sales · ✅ sales by store, city and category · ✅ bestsellers · ✅ customers and top customers |
-| **Store Manager** (Priya Nair) | ✅ store picker for all 8 stores (opens on Jayanagar) · ✅ the selected store's KPIs vs last week, sales by hour and last 14 days · ✅ all stores at a glance (click to switch) · ✅ running-low products for all stores, the selected store first · ✅ orders in progress and riders (all stores) · ⬜ orders likely to be late · ⬜ store demand forecast |
+| **Store Manager** (Priya Nair) | ✅ store picker for all 8 stores (opens on Jayanagar) · ✅ the selected store's KPIs vs last week, sales by hour and last 14 days · ✅ all stores at a glance (click to switch) · ✅ running-low products for all stores, the selected store first · ✅ orders in progress and riders (all stores) · 🧪 orders likely to be late · 🧪 demand forecast for tomorrow (orders, sales, by hour, stock to plan) |
 
 ### Operations
 
 | Dashboard | Widgets |
 |---|---|
-| **Operations Manager** (Rohit Shah) | ✅ orders, GMV, late, cancellations, deliveries in progress, payment failures, open tickets · ✅ orders and cancellations, last 30 days · ✅ store performance + late-rate map · ✅ live orders per minute and order status · ✅ 5 anomalies · ✅ late-delivery prediction explained (order #88041: probability vs the store's usual late rate, outcome, what the model looks at) · ✅ late-delivery risk by city (a stated rule, not the ML model) · ⬜ open orders at risk |
-| **Inventory & Planning** (Ishita Das) | ✅ products below reorder, emergency restocks, forecast error, restocks waiting · ✅ inventory risk with stock cover, risk and restock quantity (where a proposal exists) · ✅ demand forecast vs actual (table and chart) · ✅ restock and action proposals · ⬜ demand forecast over time |
-| **Data & Model Health** (Tom Riddle) | ✅ quality score, refresh lag, quarantine, Gold rows · ✅ medallion pipeline: rows, tables and steps per layer · ✅ pipeline stages · ✅ recent activity · ✅ models: type, baseline, candidate, metrics · ⬜ latest model scores · ⬜ model accuracy over time · ⬜ data quality over time |
+| **Operations Manager** (Rohit Shah) | ✅ orders, GMV, late, cancellations, deliveries in progress, payment failures, open tickets · ✅ orders and cancellations, last 30 days · ✅ store performance + late-rate map · ✅ live orders per minute and order status · ✅ 5 anomalies · ✅ late-delivery prediction explained (order #88041: probability vs the store's usual late rate, outcome, what the model looks at) · ✅ late-delivery risk by city (a stated rule, not the ML model) · 🧪 open orders at risk |
+| **Inventory & Planning** (Ishita Das) | ✅ products below reorder, emergency restocks, forecast error, restocks waiting · ✅ inventory risk with stock cover, risk and restock quantity (where a proposal exists) · ✅ demand forecast vs actual (table and chart) · ✅ restock and action proposals · 🧪 orders forecast, next 7 days |
+| **Data & Model Health** (Tom Riddle) | ✅ quality score, refresh lag, quarantine, Gold rows · ✅ medallion pipeline: rows, tables and steps per layer · ✅ pipeline stages · ✅ recent activity · ✅ models: type, baseline, candidate, metrics · 🧪 latest model scores · 🧪 model accuracy over time · 🧪 data quality over time |
 
 ## Choices made on the dummy data
 
@@ -59,6 +59,8 @@ The full platform has two dummy-data sets: one for the business console and one 
 - **Emergency restock** = stock cover under 4 hours, the threshold in the Inventory SOP (`src/quickcart/rag/fixtures/inventory_sop.md`).
 - **Late-rate colours** on the ops map and table: red above 9%, amber above the network average, green at or below it.
 - **Late-delivery risk by city** is a rule, labelled as such on the page. *High*: late rate above 9% or an open delivery-time alert. *Medium*: late rate above the network average. *Low*: otherwise. The dummy data has only one ML-scored order, so per-order predictions stay in the "Open orders at risk" panel until the model runs.
+- **Leadership sales forecast is illustrative,** labelled as such on the page and calculated only from the Leadership page's own 14-day sales trend. Each forecast day is the average of the same weekday in the completed days; the range is ± the average week-on-week change in that trend (about 3.3%). Today is drawn on the chart so the axis stays continuous, and left out of the average because it is still in progress.
+- **Generated sample data (Operations and Store Manager).** To avoid empty panels in the demo, these are generated from numbers already on the same persona's pages, seeded so they never change between visits: Store Manager late-order risk and tomorrow's demand (from each store's scorecard and trend; the stock plan leads with that store's own running-low lines, and the hourly bars add up to the expected orders); Operations open orders at risk (the one real scored order plus one generated order for every other city); Inventory 7-day orders forecast (same-weekday average of the 30-day trend, ±8.6% range); Data & Model Health quality trend (ends at the real 92/100, quarantined rows add up to the real 4,120) and weekly model runs (end at the real 8.6% forecast error and 5 anomalies; ROC-AUC / PR-AUC values are sample figures). All of it lives in `frontend/lib/solution-data.ts` and is what the backend API should replace.
 - **Chart animations are off,** so charts are always fully drawn, including after a window resize or a projector switch.
 
 ## Files

@@ -68,6 +68,8 @@ export async function middleware(request: NextRequest) {
   }
 
   if (pathname === "/api/streamlit-health") return NextResponse.next();
+  // Standalone showcase page built only on bundled demo fixtures; no session needed.
+  if (pathname === "/solution") return NextResponse.next();
   // Same-origin API proxy (next.config rewrite). FastAPI enforces auth; do not
   // gate these with the console cookie or login cannot load demo personas.
   if (pathname.startsWith("/qc-api")) return NextResponse.next();
